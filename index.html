@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Focus List</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <p class="eyebrow">Focus List</p>
+        <h1>把零散的事情，收进一个清爽的清单里。</h1>
+        <p class="hero-copy">
+          一个通过 Tailscale 局域网同步的 todolist。把服务运行在一台设备上，其他设备直接访问同一个地址。
+        </p>
+      </header>
+
+      <main class="app-card" aria-label="Todo 应用">
+        <section class="composer" aria-label="创建任务">
+          <form id="todo-form" class="todo-form">
+            <label class="sr-only" for="todo-input">输入任务</label>
+            <input
+              id="todo-input"
+              name="todo"
+              type="text"
+              maxlength="120"
+              placeholder="例如：完成 SSH 登录页原型"
+              autocomplete="off"
+              required
+            />
+            <button type="submit">添加任务</button>
+          </form>
+        </section>
+
+        <section class="toolbar" aria-label="筛选与统计">
+          <div class="filters" role="tablist" aria-label="任务筛选">
+            <button class="filter is-active" data-filter="all" type="button">全部</button>
+            <button class="filter" data-filter="active" type="button">进行中</button>
+            <button class="filter" data-filter="completed" type="button">已完成</button>
+          </div>
+          <div class="summary">
+            <span id="sync-status" class="sync-status">正在连接同步服务</span>
+            <span id="todo-count">0 个待完成</span>
+            <button id="clear-completed" class="ghost-button" type="button">
+              清除已完成
+            </button>
+          </div>
+        </section>
+
+        <section class="todo-panel">
+          <ul id="todo-list" class="todo-list" aria-live="polite"></ul>
+          <div id="empty-state" class="empty-state">
+            <p>还没有任务。先写下今天最重要的一件事。</p>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <template id="todo-item-template">
+      <li class="todo-item">
+        <label class="todo-check">
+          <input class="todo-toggle" type="checkbox" />
+          <span class="checkbox-ui" aria-hidden="true"></span>
+        </label>
+        <div class="todo-content">
+          <p class="todo-title"></p>
+          <div class="todo-meta"></div>
+        </div>
+        <div class="todo-actions">
+          <button class="icon-button edit-button" type="button">编辑</button>
+          <button class="icon-button delete-button" type="button">删除</button>
+        </div>
+      </li>
+    </template>
+
+    <dialog id="edit-dialog" class="edit-dialog">
+      <form id="edit-form" method="dialog" class="edit-form">
+        <h2>编辑任务</h2>
+        <label class="sr-only" for="edit-input">编辑任务内容</label>
+        <input id="edit-input" name="editTodo" type="text" maxlength="120" required />
+        <div class="dialog-actions">
+          <button class="ghost-button" type="button" id="cancel-edit">取消</button>
+          <button type="submit">保存</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,8 @@
+name: ssh-todolist
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - websockets==16.0
