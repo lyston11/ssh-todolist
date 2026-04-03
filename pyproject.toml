@@ -1,0 +1,11 @@
+[project]
+name = "ssh-todolist-services"
+version = "0.01.0"
+description = "Focus List sync service for Tailscale LAN todo synchronization."
+requires-python = ">=3.12"
+dependencies = [
+  "websockets==16.0",
+]
+
+[project.scripts]
+ssh-todolist-service = "server:main"
