@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import json
 import os
 import threading
 from pathlib import Path
@@ -15,6 +16,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 DATABASE_DIR = PROJECT_ROOT / "data"
 DATABASE_PATH = DATABASE_DIR / "todos.db"
 DEFAULT_AUTH_TOKEN = os.environ.get("SSH_TODOLIST_TOKEN", "").strip() or None
+DEFAULT_APP_WEB_URL = os.environ.get("SSH_TODOLIST_APP_WEB_URL", "").strip() or None
+DEFAULT_APP_DEEP_LINK_BASE = os.environ.get("SSH_TODOLIST_APP_DEEP_LINK_BASE", "").strip() or "com.lyston11.sshtodolist://connect"
 
 
 def main() -> None:
@@ -34,6 +37,26 @@ def main() -> None:
         default=DEFAULT_AUTH_TOKEN,
         help="Optional shared token for REST and WebSocket authentication. Can also come from SSH_TODOLIST_TOKEN.",
     )
+    parser.add_argument(
+        "--public-base-url",
+        default=None,
+        help="Optional public HTTP base URL to advertise to clients, for example https://todo.example.com.",
+    )
+    parser.add_argument(
+        "--public-ws-base-url",
+        default=None,
+        help="Optional public WebSocket base URL to advertise, for example wss://todo.example.com.",
+    )
+    parser.add_argument(
+        "--app-web-url",
+        default=DEFAULT_APP_WEB_URL,
+        help="Optional web app URL used to generate import links, for example https://todo-app.example.com.",
+    )
+    parser.add_argument(
+        "--app-deep-link-base",
+        default=DEFAULT_APP_DEEP_LINK_BASE,
+        help="Optional mobile deep-link base used to generate import links, for example com.lyston11.sshtodolist://connect.",
+    )
     args = parser.parse_args()
 
     store = TodoStore(args.db)
@@ -51,6 +74,10 @@ def main() -> None:
         ws_port,
         static_root=web_root,
         auth_token=auth_token,
+        public_base_url=args.public_base_url,
+        public_ws_base_url=args.public_ws_base_url,
+        app_web_url=args.app_web_url,
+        app_deep_link_base=args.app_deep_link_base,
     )
     http_thread = threading.Thread(target=run_http_server, args=(http_server,), daemon=True)
     http_thread.start()
@@ -66,6 +93,12 @@ def main() -> None:
             print("Authentication: enabled")
         else:
             print("Authentication: disabled")
+        connect_config = http_server.service.get_connect_config_payload(include_token=True)
+        connect_link = http_server.service.get_connect_link_payload()
+        print("Suggested app config:")
+        print(json.dumps(connect_config, ensure_ascii=False, indent=2))
+        print("Suggested app import link:")
+        print(json.dumps(connect_link, ensure_ascii=False, indent=2))
         async with serve(
             lambda websocket: websocket_handler(websocket, hub),
             args.host,

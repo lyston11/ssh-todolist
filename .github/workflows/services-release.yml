@@ -1,0 +1,51 @@
+name: Services Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-services:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tooling
+        run: python -m pip install --upgrade pip build
+
+      - name: Install package
+        run: python -m pip install . --no-build-isolation
+
+      - name: Run tests
+        run: python -m unittest tests.test_auth tests.test_connection tests.test_store
+
+      - name: Build wheel and sdist
+        run: python -m build --no-isolation
+
+      - name: Upload service artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ssh-todolist-services-${{ github.ref_name }}
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: dist/*

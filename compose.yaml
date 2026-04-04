@@ -1,0 +1,24 @@
+services:
+  ssh-todolist-services:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ssh-todolist-services
+    restart: unless-stopped
+    environment:
+      SSH_TODOLIST_TOKEN: your-shared-token
+      SSH_TODOLIST_APP_DEEP_LINK_BASE: com.lyston11.sshtodolist://connect
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+    volumes:
+      - ./data:/app/data
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --ws-port
+      - "8001"
+      - --db
+      - /app/data/todos.db

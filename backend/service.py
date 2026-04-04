@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 from backend.auth import is_auth_enabled
+from backend.connection import build_connect_config, build_connect_link_payload, render_qr_svg
 from backend.realtime import WebSocketHub
 from backend.store import TodoStore, utc_ms
 
@@ -25,8 +26,14 @@ class NotFoundError(TodoServiceError):
 class TodoService:
     store: TodoStore
     hub: WebSocketHub
+    host: str
+    port: int
     ws_port: int
     auth_token: str | None = None
+    public_base_url: str | None = None
+    public_ws_base_url: str | None = None
+    app_web_url: str | None = None
+    app_deep_link_base: str | None = None
 
     def get_health_payload(self) -> dict:
         return {
@@ -36,13 +43,43 @@ class TodoService:
             "authRequired": is_auth_enabled(self.auth_token),
         }
 
-    def get_meta_payload(self) -> dict:
+    def get_meta_payload(self, request_headers=None) -> dict:
+        connect_config = self.get_connect_config_payload(request_headers=request_headers)
         return {
-            "wsPort": self.ws_port,
+            "wsPort": connect_config["wsPort"],
             "wsPath": "/ws",
             "time": utc_ms(),
             "authRequired": is_auth_enabled(self.auth_token),
+            "connectConfigPath": "/api/connect-config",
+            "connectLinkPath": "/api/connect-link",
+            "serverUrl": connect_config["serverUrl"],
+            "wsUrl": connect_config["wsUrl"],
+            "candidates": connect_config["candidates"],
         }
+
+    def get_connect_config_payload(self, request_headers=None, include_token: bool = False) -> dict:
+        return build_connect_config(
+            bind_host=self.host,
+            http_port=self.port,
+            ws_port=self.ws_port,
+            auth_token=self.auth_token,
+            request_headers=request_headers,
+            public_base_url=self.public_base_url,
+            public_ws_base_url=self.public_ws_base_url,
+            include_token=include_token,
+        )
+
+    def get_connect_link_payload(self, request_headers=None) -> dict:
+        connect_config = self.get_connect_config_payload(request_headers=request_headers, include_token=True)
+        return build_connect_link_payload(
+            connect_config=connect_config,
+            app_web_url=self.app_web_url,
+            app_deep_link_base=self.app_deep_link_base,
+        )
+
+    def get_connect_link_qr_svg(self, request_headers=None) -> str:
+        connect_link = self.get_connect_link_payload(request_headers=request_headers)
+        return render_qr_svg(connect_link["qrValue"])
 
     def get_snapshot_payload(self) -> dict:
         lists = self.store.list_lists()

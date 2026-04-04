@@ -15,7 +15,7 @@ class TodoStoreTests(unittest.TestCase):
     def test_create_todo_without_list_id_uses_default_list(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             store = TodoStore(Path(tmpdir) / "todos.db")
-            service = TodoService(store=store, hub=DummyHub(), ws_port=8001)
+            service = TodoService(store=store, hub=DummyHub(), host="0.0.0.0", port=8000, ws_port=8001)
             store.create_list("第二个清单", list_id="second-list")
 
             todo = service.create_todo({"title": "未显式指定清单"})

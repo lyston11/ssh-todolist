@@ -21,12 +21,29 @@ class SyncHTTPServer(ThreadingHTTPServer):
         *,
         store: TodoStore,
         hub: WebSocketHub,
+        host: str,
+        port: int,
         ws_port: int,
         static_root: Path | None,
         auth_token: str | None,
+        public_base_url: str | None,
+        public_ws_base_url: str | None,
+        app_web_url: str | None,
+        app_deep_link_base: str | None,
     ) -> None:
         super().__init__(server_address, handler_class)
-        self.service = TodoService(store=store, hub=hub, ws_port=ws_port, auth_token=auth_token)
+        self.service = TodoService(
+            store=store,
+            hub=hub,
+            host=host,
+            port=port,
+            ws_port=ws_port,
+            auth_token=auth_token,
+            public_base_url=public_base_url,
+            public_ws_base_url=public_ws_base_url,
+            app_web_url=app_web_url,
+            app_deep_link_base=app_deep_link_base,
+        )
         self.static_root = static_root
         self.auth_token = auth_token
 
@@ -44,11 +61,23 @@ class TodoHandler(SimpleHTTPRequestHandler):
             self._send_json(self.server.service.get_health_payload())
             return
 
+        if parsed.path == "/api/connect-config":
+            self._send_json(self.server.service.get_connect_config_payload(request_headers=self.headers))
+            return
+
         if parsed.path.startswith("/api/") and not self._require_api_auth(parsed.path):
             return
 
+        if parsed.path == "/api/connect-link":
+            self._send_json(self.server.service.get_connect_link_payload(request_headers=self.headers))
+            return
+
+        if parsed.path == "/api/connect-link/qr.svg":
+            self._send_svg(self.server.service.get_connect_link_qr_svg(request_headers=self.headers))
+            return
+
         if parsed.path == "/api/meta":
-            self._send_json(self.server.service.get_meta_payload())
+            self._send_json(self.server.service.get_meta_payload(request_headers=self.headers))
             return
 
         if parsed.path == "/api/snapshot":
@@ -150,7 +179,7 @@ class TodoHandler(SimpleHTTPRequestHandler):
         super().end_headers()
 
     def _require_api_auth(self, path: str) -> bool:
-        if path == "/api/health":
+        if path in {"/api/health", "/api/connect-config"}:
             return True
 
         provided_token = extract_token_from_request(self.headers, self.path)
@@ -209,6 +238,15 @@ class TodoHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(encoded)
 
+    def _send_svg(self, payload: str, status: HTTPStatus = HTTPStatus.OK) -> None:
+        encoded = payload.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "image/svg+xml; charset=utf-8")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(encoded)
+
     def _send_error_json(self, status: HTTPStatus, message: str) -> None:
         self._send_json({"error": message}, status=status)
 
@@ -224,15 +262,25 @@ def create_http_server(
     ws_port: int,
     static_root: Path | None = None,
     auth_token: str | None = None,
+    public_base_url: str | None = None,
+    public_ws_base_url: str | None = None,
+    app_web_url: str | None = None,
+    app_deep_link_base: str | None = None,
 ) -> SyncHTTPServer:
     return SyncHTTPServer(
         (host, port),
         TodoHandler,
         store=store,
         hub=hub,
+        host=host,
+        port=port,
         ws_port=ws_port,
         static_root=static_root,
         auth_token=auth_token,
+        public_base_url=public_base_url,
+        public_ws_base_url=public_ws_base_url,
+        app_web_url=app_web_url,
+        app_deep_link_base=app_deep_link_base,
     )
 
 
