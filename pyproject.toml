@@ -18,6 +18,10 @@ ssh-todolist-service = "server:main"
 
 [tool.setuptools]
 py-modules = ["server"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+backend = ["admin/*"]
 
 [tool.setuptools.packages.find]
 include = ["backend*"]

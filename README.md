@@ -179,6 +179,33 @@ conda run -n ssh-todolist python server.py \
 - Docker 镜像默认数据目录为 `/app/data`
 - wheel / sdist 适合发给别人离线安装
 
+## 浏览器后台
+
+服务端现在内置了一个只读后台页，不依赖 `ssh-todolist-app`。
+
+部署后你可以直接在浏览器里打开：
+
+```text
+http://<server-host>:8000/admin
+```
+
+如果你没有配置 `--web-root`，直接访问根路径 `/` 也会落到这个后台页。
+
+后台页当前可查看：
+
+- 服务地址、WebSocket 地址、候选连接地址
+- SQLite 数据库路径和文件大小
+- 清单总数、任务总数、待完成数、已完成数
+- 每个清单的任务统计
+- 最近更新的任务
+- `config64` / Deep Link / Web 导入链接等客户端导入信息
+
+如果服务启用了 token 鉴权：
+
+- 后台页本身仍可打开
+- 但读取后台数据时需要在页面里输入 token
+- 也可以用 `?token=your-shared-token` 预填
+
 ## GitHub 自动打包
 
 仓库已补 [services-release.yml](/Users/lyston/PycharmProjects/ssh-todolist/ssh-todolist-services/.github/workflows/services-release.yml)：

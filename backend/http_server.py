@@ -4,6 +4,8 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
+from importlib.resources import files
+
 from backend.auth import AuthError, extract_token_from_request, validate_token
 from backend.realtime import WebSocketHub
 from backend.service import TodoService, TodoServiceError
@@ -11,6 +13,12 @@ from backend.store import TodoStore
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+ADMIN_ROOT = files("backend.admin")
+ADMIN_CONTENT_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+}
 
 
 class SyncHTTPServer(ThreadingHTTPServer):
@@ -57,6 +65,19 @@ class TodoHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == "/" and self.server.static_root is None:
+            self._send_admin_asset("index.html")
+            return
+
+        if parsed.path in {"/admin", "/admin/", "/admin/index.html"}:
+            self._send_admin_asset("index.html")
+            return
+
+        if parsed.path.startswith("/admin/"):
+            admin_relative_path = parsed.path.removeprefix("/admin/").strip() or "index.html"
+            self._send_admin_asset(admin_relative_path)
+            return
+
         if parsed.path == "/api/health":
             self._send_json(self.server.service.get_health_payload())
             return
@@ -78,6 +99,10 @@ class TodoHandler(SimpleHTTPRequestHandler):
 
         if parsed.path == "/api/meta":
             self._send_json(self.server.service.get_meta_payload(request_headers=self.headers))
+            return
+
+        if parsed.path == "/api/admin/overview":
+            self._send_json(self.server.service.get_admin_overview_payload(request_headers=self.headers))
             return
 
         if parsed.path == "/api/snapshot":
@@ -242,6 +267,22 @@ class TodoHandler(SimpleHTTPRequestHandler):
         encoded = payload.encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "image/svg+xml; charset=utf-8")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(encoded)
+
+    def _send_admin_asset(self, relative_path: str) -> None:
+        normalized_path = (relative_path or "index.html").strip().lstrip("/")
+        asset = ADMIN_ROOT.joinpath(normalized_path)
+        if not asset.is_file():
+            self._send_error_json(HTTPStatus.NOT_FOUND, "admin asset not found")
+            return
+
+        encoded = asset.read_bytes()
+        content_type = ADMIN_CONTENT_TYPES.get(Path(normalized_path).suffix, "application/octet-stream")
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(encoded)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ssh-todolist-services Admin</title>
+    <link rel="stylesheet" href="/admin/admin.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <p class="eyebrow">ssh-todolist-services</p>
+        <h1>同步服务后台</h1>
+        <p class="hero-copy">
+          直接查看服务运行状态、清单与任务统计、数据库信息，以及客户端导入配置。
+        </p>
+      </header>
+
+      <main class="dashboard-grid">
+        <section class="panel auth-panel">
+          <div class="panel-header">
+            <div>
+              <p class="panel-eyebrow">连接</p>
+              <h2>访问后台数据</h2>
+            </div>
+            <button id="refresh-button" type="button">刷新</button>
+          </div>
+          <p id="auth-status" class="status-text">正在检查服务状态...</p>
+          <form id="token-form" class="token-form">
+            <label for="token-input">访问 token</label>
+            <div class="token-row">
+              <input id="token-input" type="password" placeholder="如已启用鉴权，请输入 token" autocomplete="off" />
+              <button type="submit">保存并刷新</button>
+            </div>
+            <p class="token-hint">如果服务未启用 token，这里可以留空。</p>
+          </form>
+        </section>
+
+        <section class="panel stats-panel">
+          <div class="panel-header">
+            <div>
+              <p class="panel-eyebrow">概览</p>
+              <h2>运行总览</h2>
+            </div>
+            <p id="updated-at" class="muted-text">尚未加载</p>
+          </div>
+          <div id="stats-grid" class="stats-grid"></div>
+        </section>
+
+        <section class="panel server-panel">
+          <div class="panel-header">
+            <div>
+              <p class="panel-eyebrow">节点</p>
+              <h2>服务地址与数据库</h2>
+            </div>
+          </div>
+          <dl id="server-meta" class="meta-list"></dl>
+        </section>
+
+        <section class="panel candidates-panel">
+          <div class="panel-header">
+            <div>
+              <p class="panel-eyebrow">候选地址</p>
+              <h2>推荐连接入口</h2>
+            </div>
+          </div>
+          <div id="candidate-list" class="stack-list empty-slot">加载后显示推荐地址。</div>
+        </section>
+
+        <section class="panel share-panel">
+          <div class="panel-header">
+            <div>
+              <p class="panel-eyebrow">导入</p>
+              <h2>客户端导入信息</h2>
+            </div>
+          </div>
+          <dl id="share-meta" class="meta-list"></dl>
+          <div id="share-text-block" class="share-text-block" hidden>
+            <p class="share-label">短分享文本</p>
+            <pre id="share-text"></pre>
+          </div>
+        </section>
+
+        <section class="panel lists-panel">
+          <div class="panel-header">
+            <div>
+              <p class="panel-eyebrow">清单</p>
+              <h2>清单统计</h2>
+            </div>
+          </div>
+          <div id="lists-grid" class="lists-grid empty-slot">加载后显示清单统计。</div>
+        </section>
+
+        <section class="panel todos-panel">
+          <div class="panel-header">
+            <div>
+              <p class="panel-eyebrow">最近任务</p>
+              <h2>最近更新</h2>
+            </div>
+          </div>
+          <div id="recent-todos" class="todo-stack empty-slot">加载后显示最近更新的任务。</div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="/admin/admin.js"></script>
+  </body>
+</html>

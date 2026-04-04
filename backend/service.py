@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+from backend.admin_dashboard import build_admin_overview
 from backend.auth import is_auth_enabled
 from backend.connection import build_connect_config, build_connect_link_payload, render_qr_svg
 from backend.realtime import WebSocketHub
@@ -80,6 +81,19 @@ class TodoService:
     def get_connect_link_qr_svg(self, request_headers=None) -> str:
         connect_link = self.get_connect_link_payload(request_headers=request_headers)
         return render_qr_svg(connect_link["qrValue"])
+
+    def get_admin_overview_payload(self, request_headers=None) -> dict:
+        snapshot = self.get_snapshot_payload()
+        connect_config = self.get_connect_config_payload(request_headers=request_headers)
+        connect_link = self.get_connect_link_payload(request_headers=request_headers)
+        return build_admin_overview(
+            snapshot=snapshot,
+            connect_config=connect_config,
+            connect_link=connect_link,
+            auth_required=is_auth_enabled(self.auth_token),
+            db_path=self.store.db_path,
+            ws_port=self.ws_port,
+        )
 
     def get_snapshot_payload(self) -> dict:
         lists = self.store.list_lists()
