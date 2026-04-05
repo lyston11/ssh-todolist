@@ -5,6 +5,7 @@ import subprocess
 
 
 TAILSCALE_IPV4_NETWORK = ipaddress.ip_network("100.64.0.0/10")
+TAILSCALE_IPV6_NETWORK = ipaddress.ip_network("fd7a:115c:a1e0::/48")
 WILDCARD_HOSTS = {"", "0.0.0.0", "::", "[::]"}
 
 
@@ -52,6 +53,8 @@ def classify_host(host: str) -> str:
 
     if parsed.version == 4 and parsed in TAILSCALE_IPV4_NETWORK:
         return "tailscale"
+    if parsed.version == 6 and parsed in TAILSCALE_IPV6_NETWORK:
+        return "tailscale"
     if parsed.is_loopback:
         return "loopback"
     if parsed.is_private:
@@ -80,9 +83,21 @@ def _detect_tailscale_hosts() -> list[str]:
     if shutil.which("tailscale") is None:
         return []
 
+    hosts: list[str] = []
+    seen: set[str] = set()
+    for flag in ("-4", "-6"):
+        for host in _run_tailscale_ip_command(flag):
+            if host in seen:
+                continue
+            seen.add(host)
+            hosts.append(host)
+    return hosts
+
+
+def _run_tailscale_ip_command(flag: str) -> list[str]:
     try:
         result = subprocess.run(
-            ["tailscale", "ip", "-4"],
+            ["tailscale", "ip", flag],
             check=False,
             capture_output=True,
             text=True,
@@ -96,15 +111,14 @@ def _detect_tailscale_hosts() -> list[str]:
 
     hosts: list[str] = []
     for raw_line in result.stdout.splitlines():
-        line = raw_line.strip()
+        line = _normalize_detected_host(raw_line)
         if not line:
             continue
         try:
-            parsed = ipaddress.ip_address(line)
+            ipaddress.ip_address(line)
         except ValueError:
             continue
-        if parsed.version == 4:
-            hosts.append(line)
+        hosts.append(line)
     return hosts
 
 
@@ -116,17 +130,27 @@ def _detect_hostname_hosts() -> list[str]:
     for name in names:
         if not name:
             continue
-        try:
-            infos = socket.getaddrinfo(name, None, family=socket.AF_INET, type=socket.SOCK_STREAM)
-        except OSError:
-            continue
-
-        for info in infos:
-            host = info[4][0].strip()
-            if not host or host in seen or host.startswith("127."):
+        for family in (socket.AF_INET, socket.AF_INET6):
+            try:
+                infos = socket.getaddrinfo(name, None, family=family, type=socket.SOCK_STREAM)
+            except OSError:
                 continue
-            seen.add(host)
-            hosts.append(host)
+
+            for info in infos:
+                host = _normalize_detected_host(info[4][0])
+                if not host or host in seen:
+                    continue
+
+                try:
+                    parsed = ipaddress.ip_address(host)
+                except ValueError:
+                    parsed = None
+
+                if parsed is not None and (parsed.is_loopback or parsed.is_link_local or parsed.is_unspecified):
+                    continue
+
+                seen.add(host)
+                hosts.append(host)
 
     return hosts
 
@@ -139,3 +163,7 @@ def _format_host_for_url(host: str) -> str:
     if parsed.version == 6:
         return f"[{host}]"
     return host
+
+
+def _normalize_detected_host(host: str) -> str:
+    return host.strip().split("%", 1)[0]

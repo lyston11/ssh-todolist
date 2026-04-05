@@ -1,4 +1,6 @@
 const TOKEN_STORAGE_KEY = "ssh-todolist-services.admin.token";
+let qrPreviewObjectUrl = "";
+let memoryToken = "";
 
 const elements = {
   authStatus: document.querySelector("#auth-status"),
@@ -10,6 +12,8 @@ const elements = {
   serverMeta: document.querySelector("#server-meta"),
   candidateList: document.querySelector("#candidate-list"),
   shareMeta: document.querySelector("#share-meta"),
+  shareQrBlock: document.querySelector("#share-qr-block"),
+  shareQrPreview: document.querySelector("#share-qr-preview"),
   shareTextBlock: document.querySelector("#share-text-block"),
   shareText: document.querySelector("#share-text"),
   listsGrid: document.querySelector("#lists-grid"),
@@ -19,7 +23,11 @@ const elements = {
 bootstrap();
 
 function bootstrap() {
-  const presetToken = new URLSearchParams(location.search).get("token") ?? loadToken();
+  const presetToken = readLegacyQueryToken() || loadToken();
+  if (presetToken) {
+    saveToken(presetToken);
+  }
+  clearLegacyQueryToken();
   elements.tokenInput.value = presetToken;
 
   elements.tokenForm.addEventListener("submit", async (event) => {
@@ -43,7 +51,7 @@ async function refreshDashboard() {
     const health = await requestJson("/api/health");
     const token = elements.tokenInput.value.trim();
     const overview = await requestJson("/api/admin/overview", token);
-    renderDashboard(overview, health);
+    await renderDashboard(overview, health, token);
     const authMessage = health.authRequired
       ? token
         ? "鉴权已启用，当前后台数据已使用 token 读取。"
@@ -57,12 +65,13 @@ async function refreshDashboard() {
   }
 }
 
-function renderDashboard(overview, health) {
+async function renderDashboard(overview, health, token) {
   elements.updatedAt.textContent = formatDateTime(overview.time);
   renderStats(overview.totals);
   renderServerMeta(overview, health);
   renderCandidates(overview.server.candidates);
   renderShareMeta(overview.connectLink);
+  await renderShareQr(overview.connectLink, token);
   renderLists(overview.lists);
   renderRecentTodos(overview.recentTodos);
 }
@@ -74,6 +83,7 @@ function clearDashboard() {
   elements.candidateList.textContent = "后台数据未加载。";
   elements.candidateList.className = "stack-list empty-slot";
   elements.shareMeta.innerHTML = "";
+  clearShareQrPreview("后台数据未加载。");
   elements.shareTextBlock.hidden = true;
   elements.shareText.textContent = "";
   elements.listsGrid.textContent = "后台数据未加载。";
@@ -172,6 +182,44 @@ function renderShareMeta(connectLink) {
   elements.shareText.textContent = "";
 }
 
+async function renderShareQr(connectLink, token) {
+  const qrPath = connectLink?.qrSvgPath || "";
+  if (!qrPath) {
+    clearShareQrPreview("当前没有可展示的二维码。");
+    return;
+  }
+
+  try {
+    const svg = await requestText(qrPath, token);
+    const objectUrl = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+    clearShareQrPreview();
+    qrPreviewObjectUrl = objectUrl;
+    elements.shareQrBlock.hidden = false;
+    elements.shareQrPreview.className = "share-qr-preview";
+    elements.shareQrPreview.innerHTML = "";
+
+    const image = document.createElement("img");
+    image.src = objectUrl;
+    image.alt = "客户端导入二维码";
+    elements.shareQrPreview.append(image);
+  } catch (error) {
+    console.error(error);
+    clearShareQrPreview("二维码加载失败，请确认 token 或服务状态。");
+  }
+}
+
+function clearShareQrPreview(message = "当前没有可展示的二维码。") {
+  if (qrPreviewObjectUrl) {
+    URL.revokeObjectURL(qrPreviewObjectUrl);
+    qrPreviewObjectUrl = "";
+  }
+
+  elements.shareQrBlock.hidden = false;
+  elements.shareQrPreview.innerHTML = "";
+  elements.shareQrPreview.className = "share-qr-preview empty-slot";
+  elements.shareQrPreview.textContent = message;
+}
+
 function renderLists(lists) {
   elements.listsGrid.innerHTML = "";
   elements.listsGrid.className = "lists-grid";
@@ -261,16 +309,70 @@ async function requestJson(path, token = "") {
   return payload;
 }
 
-function saveToken(token) {
-  if (token) {
-    localStorage.setItem(TOKEN_STORAGE_KEY, token);
-    return;
+async function requestText(path, token = "") {
+  const response = await fetch(path, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+
+  if (!response.ok) {
+    throw new Error(`request failed: ${response.status}`);
   }
-  localStorage.removeItem(TOKEN_STORAGE_KEY);
+
+  return response.text();
+}
+
+function saveToken(token) {
+  const normalizedToken = token.trim();
+  const sessionStorage = getSessionStorage();
+  if (sessionStorage) {
+    if (normalizedToken) {
+      sessionStorage.setItem(TOKEN_STORAGE_KEY, normalizedToken);
+    } else {
+      sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+    }
+  }
+
+  memoryToken = normalizedToken;
 }
 
 function loadToken() {
-  return localStorage.getItem(TOKEN_STORAGE_KEY) ?? "";
+  const sessionStorage = getSessionStorage();
+  if (sessionStorage) {
+    const sessionToken = sessionStorage.getItem(TOKEN_STORAGE_KEY);
+    if (typeof sessionToken === "string" && sessionToken.trim()) {
+      memoryToken = sessionToken.trim();
+      return memoryToken;
+    }
+  }
+
+  return memoryToken;
+}
+
+function readLegacyQueryToken() {
+  const queryToken = new URLSearchParams(location.search).get("token");
+  return typeof queryToken === "string" ? queryToken.trim() : "";
+}
+
+function clearLegacyQueryToken() {
+  if (typeof history.replaceState !== "function") {
+    return;
+  }
+
+  const url = new URL(location.href);
+  if (!url.searchParams.has("token")) {
+    return;
+  }
+
+  url.searchParams.delete("token");
+  const nextSearch = url.searchParams.toString();
+  history.replaceState({}, "", `${url.pathname}${nextSearch ? `?${nextSearch}` : ""}${url.hash}`);
+}
+
+function getSessionStorage() {
+  if (typeof globalThis.sessionStorage?.getItem !== "function") {
+    return null;
+  }
+  return globalThis.sessionStorage;
 }
 
 function formatDateTime(timestamp) {

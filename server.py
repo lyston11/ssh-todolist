@@ -7,6 +7,7 @@ from pathlib import Path
 
 from websockets.asyncio.server import serve
 
+from backend.connection import has_trustworthy_remote_candidate
 from backend.http_server import create_http_server, run_http_server
 from backend.realtime import WebSocketHub, build_websocket_process_request, websocket_handler
 from backend.store import TodoStore
@@ -16,8 +17,16 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 DATABASE_DIR = PROJECT_ROOT / "data"
 DATABASE_PATH = DATABASE_DIR / "todos.db"
 DEFAULT_AUTH_TOKEN = os.environ.get("SSH_TODOLIST_TOKEN", "").strip() or None
+DEFAULT_PUBLIC_BASE_URL = os.environ.get("SSH_TODOLIST_PUBLIC_BASE_URL", "").strip() or None
+DEFAULT_PUBLIC_WS_BASE_URL = os.environ.get("SSH_TODOLIST_PUBLIC_WS_BASE_URL", "").strip() or None
 DEFAULT_APP_WEB_URL = os.environ.get("SSH_TODOLIST_APP_WEB_URL", "").strip() or None
 DEFAULT_APP_DEEP_LINK_BASE = os.environ.get("SSH_TODOLIST_APP_DEEP_LINK_BASE", "").strip() or "com.lyston11.sshtodolist://connect"
+DEFAULT_PRINT_CONNECT_SECRETS = os.environ.get("SSH_TODOLIST_PRINT_CONNECT_SECRETS", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 
 def main() -> None:
@@ -39,12 +48,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--public-base-url",
-        default=None,
+        default=DEFAULT_PUBLIC_BASE_URL,
         help="Optional public HTTP base URL to advertise to clients, for example https://todo.example.com.",
     )
     parser.add_argument(
         "--public-ws-base-url",
-        default=None,
+        default=DEFAULT_PUBLIC_WS_BASE_URL,
         help="Optional public WebSocket base URL to advertise, for example wss://todo.example.com.",
     )
     parser.add_argument(
@@ -56,6 +65,12 @@ def main() -> None:
         "--app-deep-link-base",
         default=DEFAULT_APP_DEEP_LINK_BASE,
         help="Optional mobile deep-link base used to generate import links, for example com.lyston11.sshtodolist://connect.",
+    )
+    parser.add_argument(
+        "--print-connect-secrets",
+        action="store_true",
+        default=DEFAULT_PRINT_CONNECT_SECRETS,
+        help="Print token-bearing import payloads to the terminal. Disabled by default for safety.",
     )
     args = parser.parse_args()
 
@@ -93,12 +108,24 @@ def main() -> None:
             print("Authentication: enabled")
         else:
             print("Authentication: disabled")
-        connect_config = http_server.service.get_connect_config_payload(include_token=True)
-        connect_link = http_server.service.get_connect_link_payload()
+        connect_config = http_server.service.get_connect_config_payload()
         print("Suggested app config:")
         print(json.dumps(connect_config, ensure_ascii=False, indent=2))
-        print("Suggested app import link:")
-        print(json.dumps(connect_link, ensure_ascii=False, indent=2))
+        if not has_trustworthy_remote_candidate(connect_config.get("candidates")):
+            print(
+                "Warning: no trustworthy Tailscale/public address was detected. "
+                "Set SSH_TODOLIST_PUBLIC_BASE_URL or --public-base-url when running in Docker, NAT, or proxy setups."
+            )
+        if auth_token is None or args.print_connect_secrets:
+            connect_link = http_server.service.get_connect_link_payload()
+            print("Suggested app import link:")
+            print(json.dumps(connect_link, ensure_ascii=False, indent=2))
+        else:
+            print("Suggested app import link: hidden because it contains the access token.")
+            print(
+                "Use GET /api/connect-link with Authorization: Bearer <token>, "
+                "or restart with --print-connect-secrets if you need terminal output."
+            )
         async with serve(
             lambda websocket: websocket_handler(websocket, hub),
             args.host,

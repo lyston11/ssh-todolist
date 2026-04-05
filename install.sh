@@ -86,6 +86,8 @@ Built Docker image:
 Run with:
   docker run --rm -p 8000:8000 -p 8001:8001 \\
     -e SSH_TODOLIST_TOKEN=your-shared-token \\
+    -e SSH_TODOLIST_PUBLIC_BASE_URL=http://100.x.x.x:8000 \\
+    -e SSH_TODOLIST_PUBLIC_WS_BASE_URL=ws://100.x.x.x:8001 \\
     -v "${ROOT_DIR}/data:/app/data" \\
     ${IMAGE_NAME}
 EOF

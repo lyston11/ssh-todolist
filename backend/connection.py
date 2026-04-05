@@ -13,6 +13,9 @@ from backend.store import utc_ms
 DEFAULT_WS_PATH = "/ws"
 DEFAULT_APP_DEEP_LINK_BASE = "com.lyston11.sshtodolist://connect"
 DEFAULT_QR_SVG_PATH = "/api/connect-link/qr.svg"
+TRUSTED_REMOTE_SOURCES = {"configured-public-base-url", "request-host", "tailscale"}
+TRUSTED_REMOTE_KINDS = {"public", "tailscale"}
+TRUSTED_BIND_KINDS = {"lan", "public", "tailscale"}
 
 
 def build_connect_config(
@@ -103,7 +106,7 @@ def build_connect_link_payload(
     web_import_url = build_import_url(normalized_app_web_url, encoded_config)
     deep_link_url = build_import_url(normalized_deep_link_base, encoded_config)
     qr_value = deep_link_url or web_import_url or encoded_config
-    qr_svg_url = build_qr_svg_url(connect_config.get("serverUrl", ""), connect_config.get("token", ""))
+    qr_svg_url = build_qr_svg_url(connect_config.get("serverUrl", ""))
     short_text = build_share_text(
         server_url=connect_config.get("serverUrl", ""),
         deep_link_url=deep_link_url,
@@ -168,12 +171,11 @@ def build_share_text(
     return "\n".join(lines)
 
 
-def build_qr_svg_url(server_url: str, token: str) -> str:
+def build_qr_svg_url(server_url: str) -> str:
     normalized_server_url = normalize_base_url(server_url)
-    normalized_token = normalize_token(token)
-    if normalized_server_url is None or normalized_token is None:
+    if normalized_server_url is None:
         return ""
-    return build_import_url(f"{normalized_server_url}{DEFAULT_QR_SVG_PATH}", normalized_token).replace("config64=", "token=", 1)
+    return f"{normalized_server_url}{DEFAULT_QR_SVG_PATH}"
 
 
 def render_qr_svg(value: str, scale: int = 8, border: int = 2) -> str:
@@ -225,6 +227,19 @@ def normalize_link_base(value: str | None) -> str | None:
     if not parsed.scheme:
         return None
     return normalized
+
+
+def has_trustworthy_remote_candidate(candidates: list[dict] | None) -> bool:
+    for candidate in candidates or []:
+        source = str(candidate.get("source", "")).strip()
+        kind = str(candidate.get("kind", "")).strip()
+        if source in TRUSTED_REMOTE_SOURCES:
+            return True
+        if kind in TRUSTED_REMOTE_KINDS:
+            return True
+        if source == "bind" and kind in TRUSTED_BIND_KINDS:
+            return True
+    return False
 
 
 def _append_candidate(candidates: list[dict], seen_server_urls: set[str], candidate: dict) -> None:

@@ -66,7 +66,11 @@ class WebSocketHub:
 
 def build_websocket_process_request(expected_token: str | None):
     async def process_request(connection, request):
-        provided_token = extract_token_from_request(request.headers, request.path)
+        provided_token = extract_token_from_request(
+            request.headers,
+            request.path,
+            allow_query_token=True,
+        )
         if not validate_token(expected_token, provided_token):
             auth_error = AuthError()
             return connection.respond(auth_error.status_code, f"{auth_error.message}\n")

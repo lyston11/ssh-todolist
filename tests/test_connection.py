@@ -7,6 +7,7 @@ from backend.connection import (
     build_import_url,
     build_public_ws_url,
     encode_connect_config,
+    has_trustworthy_remote_candidate,
     infer_request_base_url,
     render_qr_svg,
 )
@@ -66,6 +67,20 @@ class ConnectionConfigTests(unittest.TestCase):
         self.assertEqual(payload["token"], "secret-token")
         self.assertEqual(payload["serverUrl"], "http://100.88.77.66:8000")
         self.assertEqual(payload["wsUrl"], "ws://100.88.77.66:8001/ws")
+
+    @patch("backend.connection.discover_bind_hosts")
+    def test_builds_ipv6_candidate_urls_with_brackets(self, mock_discover_bind_hosts) -> None:
+        mock_discover_bind_hosts.return_value = [{"host": "fd7a:115c:a1e0::1", "kind": "tailscale", "source": "tailscale"}]
+
+        payload = build_connect_config(
+            bind_host="0.0.0.0",
+            http_port=8000,
+            ws_port=8001,
+            auth_token=None,
+        )
+
+        self.assertEqual(payload["serverUrl"], "http://[fd7a:115c:a1e0::1]:8000")
+        self.assertEqual(payload["wsUrl"], "ws://[fd7a:115c:a1e0::1]:8001/ws")
 
     def test_infer_request_base_url_uses_forwarded_headers(self) -> None:
         self.assertEqual(
@@ -133,9 +148,21 @@ class ConnectionConfigTests(unittest.TestCase):
         self.assertEqual(payload["qrValue"], payload["deepLinkUrl"])
         self.assertEqual(
             payload["qrSvgUrl"],
-            "http://100.88.77.66:8000/api/connect-link/qr.svg?token=secret-token",
+            "http://100.88.77.66:8000/api/connect-link/qr.svg",
         )
         self.assertIn("Focus List 导入链接", payload["shortText"])
+
+    def test_detects_trustworthy_remote_candidate(self) -> None:
+        self.assertTrue(
+            has_trustworthy_remote_candidate(
+                [{"source": "configured-public-base-url", "kind": "configured"}]
+            )
+        )
+        self.assertFalse(
+            has_trustworthy_remote_candidate(
+                [{"source": "hostname", "kind": "hostname"}]
+            )
+        )
 
     def test_can_render_qr_svg(self) -> None:
         svg = render_qr_svg("com.lyston11.sshtodolist://connect?config64=abc123")

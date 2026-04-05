@@ -101,6 +101,8 @@ cd ssh-todolist-services
 docker build -t ssh-todolist-services:latest .
 docker run --rm -p 8000:8000 -p 8001:8001 \
   -e SSH_TODOLIST_TOKEN=your-shared-token \
+  -e SSH_TODOLIST_PUBLIC_BASE_URL=http://100.x.x.x:8000 \
+  -e SSH_TODOLIST_PUBLIC_WS_BASE_URL=ws://100.x.x.x:8001 \
   -v "$(pwd)/data:/app/data" \
   ssh-todolist-services:latest
 ```
@@ -111,8 +113,13 @@ docker run --rm -p 8000:8000 -p 8001:8001 \
 
 ```bash
 cd ssh-todolist-services
+export SSH_TODOLIST_TOKEN=your-shared-token
+export SSH_TODOLIST_PUBLIC_BASE_URL=http://100.x.x.x:8000
+export SSH_TODOLIST_PUBLIC_WS_BASE_URL=ws://100.x.x.x:8001
 docker compose up -d --build
 ```
+
+如果你不显式提供 `SSH_TODOLIST_PUBLIC_BASE_URL` / `SSH_TODOLIST_PUBLIC_WS_BASE_URL`，容器内通常只能猜到容器自己的地址，Tailscale 客户端未必能直接连上。
 
 ## 源码运行
 
@@ -160,6 +167,15 @@ export SSH_TODOLIST_TOKEN=your-shared-token
 conda run -n ssh-todolist python server.py --host 0.0.0.0 --port 8000
 ```
 
+也支持通过环境变量提供对外地址和是否打印敏感导入信息：
+
+```bash
+export SSH_TODOLIST_PUBLIC_BASE_URL=http://100.x.x.x:8000
+export SSH_TODOLIST_PUBLIC_WS_BASE_URL=ws://100.x.x.x:8001
+export SSH_TODOLIST_PRINT_CONNECT_SECRETS=true
+conda run -n ssh-todolist python server.py --host 0.0.0.0 --port 8000
+```
+
 如果你想临时把独立 app 静态目录也挂到这个服务上，可以额外传：
 
 ```bash
@@ -173,7 +189,7 @@ conda run -n ssh-todolist python server.py \
 
 - 服务端现在默认按独立 API / WebSocket 工程运行
 - 已启用 CORS，独立 Web App 和 Android App 可直接跨域访问
-- 当设置 `--token` 或 `SSH_TODOLIST_TOKEN` 时，REST 和 WebSocket 都会校验 Bearer token
+- 当设置 `--token` 或 `SSH_TODOLIST_TOKEN` 时，REST 会校验 Bearer token，WebSocket 会校验连接参数中的 token
 - 推荐让服务端和 app 分别部署，通过显式节点地址连接
 - 命令行入口现在统一为 `ssh-todolist-service`
 - Docker 镜像默认数据目录为 `/app/data`
@@ -204,7 +220,8 @@ http://<server-host>:8000/admin
 
 - 后台页本身仍可打开
 - 但读取后台数据时需要在页面里输入 token
-- 也可以用 `?token=your-shared-token` 预填
+- 后台页只把 token 保存在当前浏览器会话中，不再写入 `localStorage`
+- 不再推荐把 token 直接放进 `/admin?...` 这种 URL 中
 
 ## GitHub 自动打包
 
@@ -224,9 +241,16 @@ http://<server-host>:8000/admin
 
 1. `--public-base-url` / `--public-ws-base-url` 指定的地址
 2. 当前请求头里的 `Host` / `X-Forwarded-*`
-3. 本机 Tailscale IPv4
-4. 本机局域网 IPv4
+3. 本机 Tailscale IPv4 / IPv6
+4. 本机局域网地址
 5. `127.0.0.1`
+
+如果服务端启用了 token：
+
+- 终端默认只打印不含 token 的 `connect-config`
+- `connect-link` 这类含 token 的导入载荷默认不再直接打印
+- 如确实需要在终端里复制，显式加 `--print-connect-secrets` 或设置 `SSH_TODOLIST_PRINT_CONNECT_SECRETS=true`
+- 如果当前没有检测到可信的 Tailscale / public 对外地址，启动时会给出警告，提醒你补 `SSH_TODOLIST_PUBLIC_BASE_URL`
 
 同时新增公开接口：
 
@@ -284,20 +308,26 @@ http://100.x.x.x:8000/api/connect-config
 
 - 服务端和 app 继续保持完全分离，连接描述通过显式 JSON 契约传递
 - Tailscale 地址发现、连接配置组装、HTTP 暴露分别位于独立模块，避免把网络细节塞进业务层
-- 公开接口不会泄露真实 token；只有服务端本地终端输出会带上 token，方便运维复制
+- 公开接口不会泄露真实 token；敏感导入信息默认只通过已鉴权接口返回
 
 ## 导入链接与分享
 
 服务端现在也会生成适合手机导入的 `config64` 链接。
 
-启动服务后，终端会额外打印：
+服务端会生成以下导入字段：
 
 - `config64`: app 导入配置的 URL-safe Base64 文本
 - `deepLinkUrl`: Android App 直接导入链接，例如 `com.lyston11.sshtodolist://connect?config64=...`
 - `webImportUrl`: Web App 导入链接，例如 `https://todo-app.example.com?config64=...`
 - `qrValue`: 可直接拿去做二维码编码的文本
-- `qrSvgUrl`: 直接返回 SVG 二维码的接口地址
+- `qrSvgUrl`: 直接返回 SVG 二维码的接口地址，不再把 token 拼在 URL 查询参数里
 - `shortText`: 适合复制到聊天工具或备忘录的短分享文案
+
+注意：
+
+- 这些导入信息在启用 token 时本身就包含敏感凭据
+- 因此终端默认不会直接打印，除非你显式开启 `--print-connect-secrets`
+- 在默认安全模式下，请通过已鉴权的 `GET /api/connect-link` 获取这些字段
 
 如果你要从接口获取这些内容：
 
@@ -309,7 +339,8 @@ Authorization: Bearer your-shared-token
 如果你想直接取二维码 SVG：
 
 ```text
-GET /api/connect-link/qr.svg?token=your-shared-token
+GET /api/connect-link/qr.svg
+Authorization: Bearer your-shared-token
 ```
 
 如果你希望链接直接打开网页版 app，请启动服务时补 `--app-web-url`。

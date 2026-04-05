@@ -278,6 +278,31 @@ button {
   gap: 8px;
 }
 
+.share-qr-block {
+  display: grid;
+  gap: 8px;
+}
+
+.share-label {
+  margin: 0;
+  color: var(--text-soft);
+}
+
+.share-qr-preview {
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(20, 38, 62, 0.06);
+}
+
+.share-qr-preview img {
+  width: min(100%, 240px);
+  height: auto;
+  display: block;
+}
+
 .share-text-block pre {
   margin: 0;
   padding: 14px;

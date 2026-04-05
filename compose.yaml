@@ -6,8 +6,12 @@ services:
     container_name: ssh-todolist-services
     restart: unless-stopped
     environment:
-      SSH_TODOLIST_TOKEN: your-shared-token
-      SSH_TODOLIST_APP_DEEP_LINK_BASE: com.lyston11.sshtodolist://connect
+      SSH_TODOLIST_TOKEN: ${SSH_TODOLIST_TOKEN:-your-shared-token}
+      SSH_TODOLIST_PUBLIC_BASE_URL: ${SSH_TODOLIST_PUBLIC_BASE_URL:-}
+      SSH_TODOLIST_PUBLIC_WS_BASE_URL: ${SSH_TODOLIST_PUBLIC_WS_BASE_URL:-}
+      SSH_TODOLIST_APP_WEB_URL: ${SSH_TODOLIST_APP_WEB_URL:-}
+      SSH_TODOLIST_APP_DEEP_LINK_BASE: ${SSH_TODOLIST_APP_DEEP_LINK_BASE:-com.lyston11.sshtodolist://connect}
+      SSH_TODOLIST_PRINT_CONNECT_SECRETS: ${SSH_TODOLIST_PRINT_CONNECT_SECRETS:-}
     ports:
       - "8000:8000"
       - "8001:8001"
