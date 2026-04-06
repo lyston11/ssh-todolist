@@ -1,24 +1,40 @@
-import json
+import time
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
-from importlib.resources import files
-
-from backend.auth import AuthError, extract_token_from_request, validate_token
+from backend.auth import AuthError
+from backend.admin_activity import AdminActivityFeed
+from backend.admin_config import AdminConfigStore
+from backend.http_admin_assets import AdminAssetNotFoundError, build_admin_asset_response
+from backend.http_auth import require_api_request_auth
+from backend.http_logging import (
+    build_http_access_log_message,
+    get_http_logger,
+    normalize_http_log_mode,
+    should_log_http_request,
+)
+from backend.http_responses import (
+    HttpResponsePayload,
+    JsonBodyError,
+    build_json_error_response,
+    build_json_response,
+    parse_json_object,
+)
+from backend.http_routes import (
+    AdminAssetRouteAction,
+    RootRouteAction,
+    ServiceRouteAction,
+    match_route,
+)
 from backend.realtime import WebSocketHub
-from backend.service import TodoService, TodoServiceError
+from backend.service import TodoService
+from backend.service_errors import TodoServiceError
 from backend.store import TodoStore
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-ADMIN_ROOT = files("backend.admin")
-ADMIN_CONTENT_TYPES = {
-    ".html": "text/html; charset=utf-8",
-    ".css": "text/css; charset=utf-8",
-    ".js": "text/javascript; charset=utf-8",
-}
 
 
 class SyncHTTPServer(ThreadingHTTPServer):
@@ -38,6 +54,9 @@ class SyncHTTPServer(ThreadingHTTPServer):
         public_ws_base_url: str | None,
         app_web_url: str | None,
         app_deep_link_base: str | None,
+        http_log_mode: str,
+        admin_config_store: AdminConfigStore | None = None,
+        admin_activity_feed: AdminActivityFeed | None = None,
     ) -> None:
         super().__init__(server_address, handler_class)
         self.service = TodoService(
@@ -46,14 +65,24 @@ class SyncHTTPServer(ThreadingHTTPServer):
             host=host,
             port=port,
             ws_port=ws_port,
+            admin_entry_path="/" if static_root is None else "/admin",
+            admin_alias_path="/admin" if static_root is None else None,
             auth_token=auth_token,
             public_base_url=public_base_url,
             public_ws_base_url=public_ws_base_url,
             app_web_url=app_web_url,
             app_deep_link_base=app_deep_link_base,
+            admin_config_store=admin_config_store,
+            admin_activity_feed=admin_activity_feed,
         )
         self.static_root = static_root
         self.auth_token = auth_token
+        self.admin_config_store = admin_config_store
+        self.admin_activity_feed = admin_activity_feed
+        self.http_log_mode = normalize_http_log_mode(
+            admin_config_store.snapshot().http_log_mode if admin_config_store is not None else http_log_mode
+        )
+        self.http_logger = get_http_logger()
 
 
 class TodoHandler(SimpleHTTPRequestHandler):
@@ -64,67 +93,16 @@ class TodoHandler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=resolved_directory, **kwargs)
 
     def do_GET(self) -> None:
-        parsed = urlparse(self.path)
-        if parsed.path == "/" and self.server.static_root is None:
-            self._send_admin_asset("index.html")
-            return
+        self._dispatch_request("GET")
 
-        if parsed.path in {"/admin", "/admin/", "/admin/index.html"}:
-            self._send_admin_asset("index.html")
-            return
+    def do_POST(self) -> None:
+        self._dispatch_request("POST")
 
-        if parsed.path.startswith("/admin/"):
-            admin_relative_path = parsed.path.removeprefix("/admin/").strip() or "index.html"
-            self._send_admin_asset(admin_relative_path)
-            return
+    def do_PATCH(self) -> None:
+        self._dispatch_request("PATCH")
 
-        if parsed.path == "/api/health":
-            self._send_json(self.server.service.get_health_payload())
-            return
-
-        if parsed.path == "/api/connect-config":
-            self._send_json(self.server.service.get_connect_config_payload(request_headers=self.headers))
-            return
-
-        if parsed.path.startswith("/api/") and not self._require_api_auth(parsed.path):
-            return
-
-        if parsed.path == "/api/connect-link":
-            self._send_json(self.server.service.get_connect_link_payload(request_headers=self.headers))
-            return
-
-        if parsed.path == "/api/connect-link/qr.svg":
-            self._send_svg(self.server.service.get_connect_link_qr_svg(request_headers=self.headers))
-            return
-
-        if parsed.path == "/api/meta":
-            self._send_json(self.server.service.get_meta_payload(request_headers=self.headers))
-            return
-
-        if parsed.path == "/api/admin/overview":
-            self._send_json(self.server.service.get_admin_overview_payload(request_headers=self.headers))
-            return
-
-        if parsed.path == "/api/snapshot":
-            self._send_json(self.server.service.get_snapshot_payload())
-            return
-
-        if parsed.path == "/api/lists":
-            self._send_json(self.server.service.list_lists_payload())
-            return
-
-        if parsed.path == "/api/todos":
-            self._send_json(self.server.service.list_todos_payload())
-            return
-
-        if self.server.static_root is None:
-            self._send_error_json(HTTPStatus.NOT_FOUND, "static app is not served by ssh-todolist-services")
-            return
-
-        if parsed.path == "/":
-            self.path = "/index.html"
-
-        super().do_GET()
+    def do_DELETE(self) -> None:
+        self._dispatch_request("DELETE")
 
     def do_OPTIONS(self) -> None:
         self.send_response(HTTPStatus.NO_CONTENT)
@@ -132,164 +110,188 @@ class TodoHandler(SimpleHTTPRequestHandler):
         self.send_header("Access-Control-Max-Age", "86400")
         self.end_headers()
 
-    def do_POST(self) -> None:
-        parsed = urlparse(self.path)
-        if parsed.path.startswith("/api/") and not self._require_api_auth(parsed.path):
-            return
-
-        if parsed.path == "/api/lists":
-            self._handle_json_request(
-                lambda payload: self.server.service.create_list(payload),
-                status=HTTPStatus.CREATED,
-            )
-            return
-
-        if parsed.path == "/api/todos":
-            self._handle_json_request(
-                lambda payload: self.server.service.create_todo(payload),
-                status=HTTPStatus.CREATED,
-            )
-            return
-
-        if parsed.path == "/api/todos/clear-completed":
-            self._handle_json_request(lambda payload: self.server.service.clear_completed_todos(payload))
-            return
-
-        self._send_error_json(HTTPStatus.NOT_FOUND, "endpoint not found")
-
-    def do_PATCH(self) -> None:
-        parsed = urlparse(self.path)
-        if parsed.path.startswith("/api/") and not self._require_api_auth(parsed.path):
-            return
-
-        list_id = self._extract_list_id(parsed.path)
-        if list_id is not None:
-            self._handle_json_request(lambda payload: self.server.service.update_list(list_id, payload))
-            return
-
-        todo_id = self._extract_todo_id(parsed.path)
-        if todo_id is None:
-            self._send_error_json(HTTPStatus.NOT_FOUND, "endpoint not found")
-            return
-
-        self._handle_json_request(lambda payload: self.server.service.update_todo(todo_id, payload))
-
-    def do_DELETE(self) -> None:
-        parsed = urlparse(self.path)
-        if parsed.path.startswith("/api/") and not self._require_api_auth(parsed.path):
-            return
-
-        list_id = self._extract_list_id(parsed.path)
-        if list_id is not None:
-            try:
-                self._send_json(self.server.service.delete_list(list_id))
-            except TodoServiceError as error:
-                self._send_error_json(error.status_code, error.message)
-            return
-
-        todo_id = self._extract_todo_id(parsed.path)
-        if todo_id is None:
-            self._send_error_json(HTTPStatus.NOT_FOUND, "endpoint not found")
-            return
-
-        try:
-            self._send_json(self.server.service.delete_todo(todo_id))
-        except TodoServiceError as error:
-            self._send_error_json(error.status_code, error.message)
-
     def end_headers(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
         super().end_headers()
 
-    def _require_api_auth(self, path: str) -> bool:
-        if path in {"/api/health", "/api/connect-config"}:
-            return True
+    def _dispatch_request(self, method: str) -> None:
+        self._request_started_at = time.perf_counter()
+        self._request_method = method
+        self._request_path = self.path
+        parsed = urlparse(self.path)
+        route_match = match_route(method, parsed.path)
+        if route_match is not None:
+            route, params = route_match.route, route_match.params
+            if route.requires_auth and not self._require_api_auth(parsed.path):
+                return
 
-        provided_token = extract_token_from_request(self.headers, self.path)
-        if not validate_token(self.server.auth_token, provided_token):
-            auth_error = AuthError()
-            self._send_error_json(auth_error.status_code, auth_error.message)
+            self._execute_route(route.action, params)
+            return
+
+        if method == "GET":
+            self._serve_static_fallback(parsed)
+            return
+
+        self._send_error_response(HTTPStatus.NOT_FOUND, "endpoint not found")
+
+    def _serve_static_fallback(self, parsed) -> None:
+        if self.server.static_root is None:
+            self._send_error_response(HTTPStatus.NOT_FOUND, "static app is not served by ssh-todolist-services")
+            return
+
+        if parsed.path == "/":
+            self.path = "/index.html"
+
+        super().do_GET()
+
+    def _execute_route(
+        self,
+        action: RootRouteAction | AdminAssetRouteAction | ServiceRouteAction,
+        params: dict[str, str],
+    ) -> None:
+        if isinstance(action, RootRouteAction):
+            self._handle_root_action()
+            return
+
+        if isinstance(action, AdminAssetRouteAction):
+            self._handle_admin_asset_action(action, params)
+            return
+
+        if isinstance(action, ServiceRouteAction):
+            self._execute_bound_service_action(action, params)
+            return
+
+        raise TypeError(f"unsupported route action: {type(action)!r}")
+
+    def _handle_root_action(self) -> None:
+        if self.server.static_root is None:
+            self._send_admin_asset("index.html")
+            return
+
+        self.path = "/index.html"
+        super().do_GET()
+
+    def _handle_admin_asset_action(self, action: AdminAssetRouteAction, params: dict[str, str]) -> None:
+        self._send_admin_asset(action.resolve_asset_path(params))
+
+    def _require_api_auth(self, path: str) -> bool:
+        try:
+            require_api_request_auth(self.server.auth_token, self.headers, path)
+        except AuthError as auth_error:
+            self._send_error_response(auth_error.status_code, auth_error.message)
             return False
         return True
 
-    def _extract_todo_id(self, path: str) -> str | None:
-        prefix = "/api/todos/"
-        if not path.startswith(prefix) or path == "/api/todos/clear-completed":
-            return None
-        return path.removeprefix(prefix).strip() or None
-
-    def _extract_list_id(self, path: str) -> str | None:
-        prefix = "/api/lists/"
-        if not path.startswith(prefix):
-            return None
-        return path.removeprefix(prefix).strip() or None
-
     def _read_json(self) -> dict:
-        content_length = int(self.headers.get("Content-Length", "0"))
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+        except ValueError as error:
+            raise JsonBodyError("invalid Content-Length header") from error
+
         raw_body = self.rfile.read(content_length) if content_length else b"{}"
+        return parse_json_object(raw_body)
+
+    def _execute_json_service_action(
+        self,
+        action,
+        *,
+        status: HTTPStatus = HTTPStatus.OK,
+        response_builder=build_json_response,
+    ) -> None:
         try:
-            parsed = json.loads(raw_body.decode("utf-8") or "{}")
-        except json.JSONDecodeError:
-            self._send_error_json(HTTPStatus.BAD_REQUEST, "invalid json")
-            raise ValueError("invalid json")
-
-        if not isinstance(parsed, dict):
-            self._send_error_json(HTTPStatus.BAD_REQUEST, "json body must be an object")
-            raise ValueError("json body must be an object")
-
-        return parsed
-
-    def _handle_json_request(self, handler, status: HTTPStatus = HTTPStatus.OK) -> None:
-        payload = {}
-        if self.command in {"POST", "PATCH"}:
-            try:
-                payload = self._read_json()
-            except ValueError:
-                return
-
-        try:
-            self._send_json(handler(payload), status=status)
-        except TodoServiceError as error:
-            self._send_error_json(error.status_code, error.message)
-
-    def _send_json(self, payload: dict, status: HTTPStatus = HTTPStatus.OK) -> None:
-        encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(encoded)))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(encoded)
-
-    def _send_svg(self, payload: str, status: HTTPStatus = HTTPStatus.OK) -> None:
-        encoded = payload.encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "image/svg+xml; charset=utf-8")
-        self.send_header("Content-Length", str(len(encoded)))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(encoded)
-
-    def _send_admin_asset(self, relative_path: str) -> None:
-        normalized_path = (relative_path or "index.html").strip().lstrip("/")
-        asset = ADMIN_ROOT.joinpath(normalized_path)
-        if not asset.is_file():
-            self._send_error_json(HTTPStatus.NOT_FOUND, "admin asset not found")
+            payload = self._read_json()
+        except JsonBodyError as error:
+            self._send_error_response(error.status_code, error.message)
             return
 
-        encoded = asset.read_bytes()
-        content_type = ADMIN_CONTENT_TYPES.get(Path(normalized_path).suffix, "application/octet-stream")
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(encoded)))
+        self._execute_service_action(
+            lambda: action(payload),
+            status=status,
+            response_builder=response_builder,
+        )
+
+    def _execute_bound_service_action(self, action: ServiceRouteAction, params: dict[str, str]) -> None:
+        bound_action = action.bind(self.server.service, params, self.headers)
+        if bound_action is None:
+            self._send_error_response(HTTPStatus.NOT_FOUND, "endpoint not found")
+            return
+
+        if bound_action.expects_request_body:
+            self._execute_json_service_action(
+                bound_action.execute,
+                status=bound_action.status,
+                response_builder=bound_action.response_builder,
+            )
+            return
+
+        self._execute_service_action(
+            lambda: bound_action.execute(),
+            status=bound_action.status,
+            response_builder=bound_action.response_builder,
+        )
+
+    def _execute_service_action(
+        self,
+        action,
+        *,
+        status: HTTPStatus = HTTPStatus.OK,
+        response_builder=build_json_response,
+    ) -> None:
+        try:
+            payload = action()
+        except TodoServiceError as error:
+            self._send_error_response(error.status_code, error.message)
+            return
+
+        self._send_response(response_builder(payload, status=status))
+
+    def _send_response(self, response: HttpResponsePayload) -> None:
+        self.send_response(response.status)
+        self.send_header("Content-Type", response.content_type)
+        self.send_header("Content-Length", str(len(response.body)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(encoded)
+        self.wfile.write(response.body)
 
-    def _send_error_json(self, status: HTTPStatus, message: str) -> None:
-        self._send_json({"error": message}, status=status)
+    def _send_admin_asset(self, relative_path: str) -> None:
+        try:
+            response = build_admin_asset_response(relative_path)
+        except AdminAssetNotFoundError as error:
+            self._send_error_response(error.status_code, error.message)
+            return
+
+        self._send_response(response)
+
+    def _send_error_response(self, status: HTTPStatus, message: str) -> None:
+        self._send_response(build_json_error_response(status, message))
+
+    def log_request(self, code="-", size="-") -> None:
+        status_code = _coerce_status_code(code)
+        if not should_log_http_request(_resolve_http_log_mode(self.server), status_code):
+            return
+
+        payload_size = _coerce_optional_int(size)
+        started_at = getattr(self, "_request_started_at", None)
+        duration_ms = None
+        if isinstance(started_at, (int, float)):
+            duration_ms = (time.perf_counter() - started_at) * 1000
+
+        message = build_http_access_log_message(
+            client_ip=self.client_address[0] if self.client_address else "-",
+            method=getattr(self, "_request_method", self.command or "-"),
+            path=getattr(self, "_request_path", self.path or "-"),
+            status_code=status_code,
+            size=payload_size,
+            duration_ms=duration_ms,
+        )
+
+        if status_code is not None and status_code >= 400:
+            self.server.http_logger.warning(message)
+            return
+
+        self.server.http_logger.info(message)
 
     def log_message(self, format: str, *args) -> None:
         return
@@ -307,6 +309,9 @@ def create_http_server(
     public_ws_base_url: str | None = None,
     app_web_url: str | None = None,
     app_deep_link_base: str | None = None,
+    http_log_mode: str = "errors",
+    admin_config_store: AdminConfigStore | None = None,
+    admin_activity_feed: AdminActivityFeed | None = None,
 ) -> SyncHTTPServer:
     return SyncHTTPServer(
         (host, port),
@@ -322,8 +327,38 @@ def create_http_server(
         public_ws_base_url=public_ws_base_url,
         app_web_url=app_web_url,
         app_deep_link_base=app_deep_link_base,
+        http_log_mode=http_log_mode,
+        admin_config_store=admin_config_store,
+        admin_activity_feed=admin_activity_feed,
     )
 
 
 def run_http_server(server: SyncHTTPServer) -> None:
     server.serve_forever()
+
+
+def _coerce_status_code(value) -> int | None:
+    if isinstance(value, HTTPStatus):
+        return int(value)
+    if isinstance(value, int):
+        return value
+
+    try:
+        return int(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_optional_int(value) -> int | None:
+    try:
+        parsed = int(str(value))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= 0 else None
+
+
+def _resolve_http_log_mode(server: SyncHTTPServer) -> str:
+    config_store = getattr(server, "admin_config_store", None)
+    if config_store is None:
+        return server.http_log_mode
+    return normalize_http_log_mode(config_store.snapshot().http_log_mode)

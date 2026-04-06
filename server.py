@@ -1,13 +1,21 @@
 import argparse
 import asyncio
 import json
+import logging
 import os
 import threading
 from pathlib import Path
 
+from backend.admin_activity import AdminActivityFeed
+from backend.admin_config import build_default_admin_config_store
 from websockets.asyncio.server import serve
 
 from backend.connection import has_trustworthy_remote_candidate
+from backend.http_logging import (
+    HTTP_LOG_MODES,
+    get_http_logger,
+    normalize_http_log_mode,
+)
 from backend.http_server import create_http_server, run_http_server
 from backend.realtime import WebSocketHub, build_websocket_process_request, websocket_handler
 from backend.store import TodoStore
@@ -21,6 +29,7 @@ DEFAULT_PUBLIC_BASE_URL = os.environ.get("SSH_TODOLIST_PUBLIC_BASE_URL", "").str
 DEFAULT_PUBLIC_WS_BASE_URL = os.environ.get("SSH_TODOLIST_PUBLIC_WS_BASE_URL", "").strip() or None
 DEFAULT_APP_WEB_URL = os.environ.get("SSH_TODOLIST_APP_WEB_URL", "").strip() or None
 DEFAULT_APP_DEEP_LINK_BASE = os.environ.get("SSH_TODOLIST_APP_DEEP_LINK_BASE", "").strip() or "com.lyston11.sshtodolist://connect"
+DEFAULT_HTTP_LOG_MODE = normalize_http_log_mode(os.environ.get("SSH_TODOLIST_HTTP_LOG"))
 DEFAULT_PRINT_CONNECT_SECRETS = os.environ.get("SSH_TODOLIST_PRINT_CONNECT_SECRETS", "").strip().lower() in {
     "1",
     "true",
@@ -30,7 +39,13 @@ DEFAULT_PRINT_CONNECT_SECRETS = os.environ.get("SSH_TODOLIST_PRINT_CONNECT_SECRE
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run the Focus List sync server.")
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+    get_http_logger().setLevel(logging.INFO)
+
+    parser = argparse.ArgumentParser(description="Run the SSH Todo sync server.")
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind. Use 0.0.0.0 for Tailscale access.")
     parser.add_argument("--port", type=int, default=8000, help="Port to bind.")
     parser.add_argument("--ws-port", type=int, default=None, help="WebSocket port. Defaults to HTTP port + 1.")
@@ -72,12 +87,28 @@ def main() -> None:
         default=DEFAULT_PRINT_CONNECT_SECRETS,
         help="Print token-bearing import payloads to the terminal. Disabled by default for safety.",
     )
+    parser.add_argument(
+        "--http-log",
+        choices=sorted(HTTP_LOG_MODES),
+        default=DEFAULT_HTTP_LOG_MODE,
+        help="HTTP access log mode: off, errors, or all. Can also come from SSH_TODOLIST_HTTP_LOG.",
+    )
     args = parser.parse_args()
 
-    store = TodoStore(args.db)
+    db_path = args.db.expanduser()
+    store = TodoStore(db_path)
     hub = WebSocketHub(store)
     ws_port = args.ws_port or (args.port + 1)
-    web_root = args.web_root.resolve() if args.web_root is not None else None
+    web_root = args.web_root.expanduser().resolve() if args.web_root is not None else None
+    admin_config_store = build_default_admin_config_store(
+        data_dir=db_path.parent,
+        public_base_url=args.public_base_url,
+        public_ws_base_url=args.public_ws_base_url,
+        app_web_url=args.app_web_url,
+        app_deep_link_base=args.app_deep_link_base,
+        http_log_mode=args.http_log,
+    )
+    admin_activity_feed = AdminActivityFeed()
     auth_token = None
     if isinstance(args.token, str):
         auth_token = args.token.strip() or None
@@ -93,21 +124,26 @@ def main() -> None:
         public_ws_base_url=args.public_ws_base_url,
         app_web_url=args.app_web_url,
         app_deep_link_base=args.app_deep_link_base,
+        http_log_mode=args.http_log,
+        admin_config_store=admin_config_store,
+        admin_activity_feed=admin_activity_feed,
     )
     http_thread = threading.Thread(target=run_http_server, args=(http_server,), daemon=True)
     http_thread.start()
 
     async def async_main() -> None:
         hub.bind_loop(asyncio.get_running_loop())
-        print(f"Focus List HTTP server running at http://{args.host}:{args.port}")
-        print(f"Focus List WebSocket server running at ws://{args.host}:{ws_port}/ws")
-        print(f"Database: {args.db}")
+        print(f"SSH Todo HTTP server running at http://{args.host}:{args.port}")
+        print(f"SSH Todo WebSocket server running at ws://{args.host}:{ws_port}/ws")
+        print(f"Database: {db_path}")
+        print(f"Service settings: {admin_config_store.path}")
         if web_root is not None:
             print(f"Static web root: {web_root}")
         if auth_token is not None:
             print("Authentication: enabled")
         else:
             print("Authentication: disabled")
+        print(f"HTTP access log mode: {args.http_log}")
         connect_config = http_server.service.get_connect_config_payload()
         print("Suggested app config:")
         print(json.dumps(connect_config, ensure_ascii=False, indent=2))
@@ -126,6 +162,12 @@ def main() -> None:
                 "Use GET /api/connect-link with Authorization: Bearer <token>, "
                 "or restart with --print-connect-secrets if you need terminal output."
             )
+        admin_activity_feed.add(
+            kind="server.started",
+            title="服务已启动",
+            detail=f"HTTP {connect_config.get('serverUrl', '')} · WS {connect_config.get('wsUrl', '')}",
+            entity_type="server",
+        )
         async with serve(
             lambda websocket: websocket_handler(websocket, hub),
             args.host,

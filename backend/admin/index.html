@@ -1,112 +1,532 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" translate="no">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ssh-todolist-services Admin</title>
-    <link rel="stylesheet" href="/admin/admin.css" />
+    <meta name="google" content="notranslate" />
+    <title>ssh-todolist-services</title>
+    <link rel="stylesheet" href="/admin/admin.css?v=20260406-theme7" />
   </head>
-  <body>
-    <div class="page-shell">
-      <header class="hero">
-        <p class="eyebrow">ssh-todolist-services</p>
-        <h1>同步服务后台</h1>
-        <p class="hero-copy">
-          直接查看服务运行状态、清单与任务统计、数据库信息，以及客户端导入配置。
-        </p>
+  <body class="console-theme">
+    <div class="app-container">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark">ST</div>
+          <div class="brand-copy">
+            <p class="brand-title">ssh-todolist-services</p>
+            <p class="brand-subtitle">同步服务后台</p>
+          </div>
+        </div>
+
+        <div class="topbar-actions">
+          <div id="health-indicator" class="status-pill" data-state="unknown">
+            <span class="dot"></span>
+            <span class="label">服务状态</span>
+          </div>
+          <div class="status-pill status-pill-neutral">
+            <span class="label">最后刷新</span>
+            <span id="updated-at" class="value">尚未加载</span>
+          </div>
+          <button id="theme-toggle-button" class="btn btn-ghost btn-icon theme-toggle" type="button" title="切换到夜晚模式" aria-label="切换到夜晚模式">
+            <span id="theme-toggle-icon" class="theme-toggle-icon" aria-hidden="true">☾</span>
+          </button>
+          <div id="auth-badge" class="status-pill status-pill-neutral" data-state="unknown">鉴权未知</div>
+          <button id="refresh-button" class="btn btn-primary" type="button">刷新数据</button>
+        </div>
       </header>
 
-      <main class="dashboard-grid">
-        <section class="panel auth-panel">
-          <div class="panel-header">
-            <div>
-              <p class="panel-eyebrow">连接</p>
-              <h2>访问后台数据</h2>
-            </div>
-            <button id="refresh-button" type="button">刷新</button>
-          </div>
-          <p id="auth-status" class="status-text">正在检查服务状态...</p>
-          <form id="token-form" class="token-form">
-            <label for="token-input">访问 token</label>
-            <div class="token-row">
-              <input id="token-input" type="password" placeholder="如已启用鉴权，请输入 token" autocomplete="off" />
-              <button type="submit">保存并刷新</button>
-            </div>
-            <p class="token-hint">如果服务未启用 token，这里可以留空。</p>
-          </form>
-        </section>
+      <div class="main-layout">
+        <aside class="side-rail">
+          <div class="rail-group">
+            <button class="view-nav-button rail-button" type="button" title="概览" aria-label="概览" data-view-target="overview">
+              <span class="rail-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M3 13h8V3H3z" />
+                  <path d="M13 21h8v-6h-8z" />
+                  <path d="M13 11h8V3h-8z" />
+                  <path d="M3 21h8v-6H3z" />
+                </svg>
+              </span>
+              <span class="rail-label">概览</span>
+            </button>
 
-        <section class="panel stats-panel">
-          <div class="panel-header">
-            <div>
-              <p class="panel-eyebrow">概览</p>
-              <h2>运行总览</h2>
-            </div>
-            <p id="updated-at" class="muted-text">尚未加载</p>
-          </div>
-          <div id="stats-grid" class="stats-grid"></div>
-        </section>
+            <button class="view-nav-button rail-button" type="button" title="工作台" aria-label="工作台" data-view-target="workbench">
+              <span class="rail-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M9 6h11" />
+                  <path d="M9 12h11" />
+                  <path d="M9 18h11" />
+                  <path d="M4 6h.01" />
+                  <path d="M4 12h.01" />
+                  <path d="M4 18h.01" />
+                </svg>
+              </span>
+              <span class="rail-label">工作台</span>
+            </button>
 
-        <section class="panel server-panel">
-          <div class="panel-header">
-            <div>
-              <p class="panel-eyebrow">节点</p>
-              <h2>服务地址与数据库</h2>
-            </div>
-          </div>
-          <dl id="server-meta" class="meta-list"></dl>
-        </section>
+            <button class="view-nav-button rail-button" type="button" title="导入分享" aria-label="导入分享" data-view-target="share">
+              <span class="rail-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="18" cy="5" r="3" />
+                  <circle cx="6" cy="12" r="3" />
+                  <circle cx="18" cy="19" r="3" />
+                  <path d="M8.6 13.5l6.8 4" />
+                  <path d="M15.4 6.5l-6.8 4" />
+                </svg>
+              </span>
+              <span class="rail-label">分享</span>
+            </button>
 
-        <section class="panel candidates-panel">
-          <div class="panel-header">
-            <div>
-              <p class="panel-eyebrow">候选地址</p>
-              <h2>推荐连接入口</h2>
-            </div>
-          </div>
-          <div id="candidate-list" class="stack-list empty-slot">加载后显示推荐地址。</div>
-        </section>
+            <button class="view-nav-button rail-button" type="button" title="服务配置" aria-label="服务配置" data-view-target="config">
+              <span class="rail-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M19.4 15a1.7 1.7 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1V21a2 2 0 0 1-4 0v-.09a1.7 1.7 0 0 0-.4-1 1.7 1.7 0 0 0-1-.6 1.7 1.7 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1-.4H3a2 2 0 0 1 0-4h.09a1.7 1.7 0 0 0 1-.4 1.7 1.7 0 0 0 .6-1 1.7 1.7 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1V3a2 2 0 0 1 4 0v.09a1.7 1.7 0 0 0 .4 1 1.7 1.7 0 0 0 1 .6 1.7 1.7 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.24.38.45.66 1 .4H21a2 2 0 0 1 0 4h-.09a1.7 1.7 0 0 0-1 .4 1.7 1.7 0 0 0-.51 1.2Z" />
+                </svg>
+              </span>
+              <span class="rail-label">配置</span>
+            </button>
 
-        <section class="panel share-panel">
-          <div class="panel-header">
-            <div>
-              <p class="panel-eyebrow">导入</p>
-              <h2>客户端导入信息</h2>
-            </div>
+            <button class="view-nav-button rail-button" type="button" title="最近活动" aria-label="最近活动" data-view-target="activity">
+              <span class="rail-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 8v5l3 3" />
+                  <circle cx="12" cy="12" r="9" />
+                </svg>
+              </span>
+              <span class="rail-label">活动</span>
+            </button>
           </div>
-          <dl id="share-meta" class="meta-list"></dl>
-          <div id="share-qr-block" class="share-qr-block" hidden>
-            <p class="share-label">二维码预览</p>
-            <div id="share-qr-preview" class="share-qr-preview empty-slot">加载后显示客户端导入二维码。</div>
-          </div>
-          <div id="share-text-block" class="share-text-block" hidden>
-            <p class="share-label">短分享文本</p>
-            <pre id="share-text"></pre>
-          </div>
-        </section>
+        </aside>
 
-        <section class="panel lists-panel">
-          <div class="panel-header">
-            <div>
-              <p class="panel-eyebrow">清单</p>
-              <h2>清单统计</h2>
-            </div>
-          </div>
-          <div id="lists-grid" class="lists-grid empty-slot">加载后显示清单统计。</div>
-        </section>
+        <main class="workspace">
+          <section class="workspace-stage page-shell">
+            <section class="workspace-hero">
+              <div class="workspace-copy">
+                <p class="workspace-eyebrow">SSH-TODOLIST-SERVICES</p>
+                <h1 id="view-title" class="workspace-title">概览</h1>
+                <p id="view-description" class="workspace-description">查看当前节点的任务总览、清单分布和整体运行状态。</p>
+              </div>
+            </section>
 
-        <section class="panel todos-panel">
-          <div class="panel-header">
-            <div>
-              <p class="panel-eyebrow">最近任务</p>
-              <h2>最近更新</h2>
+            <section class="workspace-auth">
+              <div class="access-card">
+                <div class="section-heading">
+                  <h2>访问鉴权</h2>
+                  <p>把 token、状态和数据库信息放在固定侧栏位，便于像 fast-note 一样随时切换页面时都能快速巡检。</p>
+                </div>
+
+                <form id="token-form" class="token-form">
+                  <div class="field-row">
+                    <input id="token-input" type="password" placeholder="输入 Admin Token" autocomplete="off" />
+                    <button class="btn btn-secondary" type="submit">应用</button>
+                  </div>
+                </form>
+
+                <p id="auth-status" class="status-copy">正在检查服务状态...</p>
+                <p id="auth-message" class="alert alert-info" hidden></p>
+
+                <div class="meta-list">
+                  <div class="meta-item">
+                    <span class="label">数据库路径</span>
+                    <span id="db-path" class="value">-</span>
+                  </div>
+                  <div class="meta-item">
+                    <span class="label">数据库大小</span>
+                    <span id="db-size" class="value">0 B</span>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </section>
+
+          <section id="view-overview" class="view-page page-shell" data-view-panel="overview">
+            <header class="page-toolbar">
+              <div class="page-toolbar-copy">
+                <p class="page-toolbar-eyebrow">Dashboard</p>
+                <h2 class="page-toolbar-title">节点总览</h2>
+                <p class="page-toolbar-description">核心统计、连接地址和最近活动集中在一个主面板里，保持 fast-note 后台那种清晰的总览入口。</p>
+              </div>
+              <div class="page-toolbar-note">
+                <p>左侧看统计和清单，右侧看入口和活动，不再堆成一屏碎卡片。</p>
+              </div>
+            </header>
+            <div class="page-grid overview-grid">
+              <section class="card card-emphasis">
+                <div class="card-header">
+                  <div class="section-heading">
+                    <h3>任务概览</h3>
+                    <p>核心统计直接平铺，方便桌面巡检。</p>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div id="stats-grid" class="stats-grid"></div>
+                </div>
+              </section>
+
+              <section class="card">
+                <div class="card-header">
+                  <div class="section-heading">
+                    <h3>节点入口</h3>
+                    <p>当前服务对外暴露的 HTTP / WS 地址，以及常用后台入口。</p>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <label class="field">
+                    <span>HTTP URL</span>
+                    <div class="copy-group">
+                      <input id="server-url" type="text" readonly value="" />
+                      <button class="btn btn-ghost btn-xs" type="button" data-copy-source="server-url">复制</button>
+                    </div>
+                  </label>
+
+                  <label class="field">
+                    <span>WS URL</span>
+                    <div class="copy-group">
+                      <input id="ws-url" type="text" readonly value="" />
+                      <button class="btn btn-ghost btn-xs" type="button" data-copy-source="ws-url">复制</button>
+                    </div>
+                  </label>
+
+                  <div id="server-entry-actions" class="server-entry-actions empty-slot">加载后显示后台入口与排查动作。</div>
+                </div>
+              </section>
+
+              <section class="card">
+                <div class="card-header">
+                  <div class="section-heading">
+                    <h3>最近活动速览</h3>
+                    <p>显示最近几次真实操作和服务事件，而不是只放占位统计。</p>
+                  </div>
+                  <button id="activity-summary-open-button" class="btn btn-ghost btn-sm" type="button">查看全部</button>
+                </div>
+                <div class="card-body">
+                  <div id="activity-summary" class="activity-summary empty-slot">加载后显示最近几次真实活动。</div>
+                </div>
+              </section>
             </div>
-          </div>
-          <div id="recent-todos" class="todo-stack empty-slot">加载后显示最近更新的任务。</div>
-        </section>
-      </main>
+
+            <section class="card">
+              <div class="card-header">
+                <div class="section-heading">
+                  <h3>清单概览</h3>
+                  <p>每个清单的任务分布、今天到期和逾期一眼看清。</p>
+                </div>
+              </div>
+              <div class="card-body">
+                <div id="lists-grid" class="lists-grid empty-slot">加载后显示清单统计。</div>
+              </div>
+            </section>
+          </section>
+
+          <section id="view-workbench" class="view-page page-shell" data-view-panel="workbench" hidden>
+            <header class="page-toolbar">
+              <div class="page-toolbar-copy">
+                <p class="page-toolbar-eyebrow">Workbench</p>
+                <h2 class="page-toolbar-title">任务工作台</h2>
+                <p class="page-toolbar-description">左侧选清单，右侧只处理当前清单；创建、改名、删除和任务处理都收进同一条工作流里。</p>
+              </div>
+            </header>
+
+            <section class="workbench-layout">
+              <aside class="card workbench-sidebar">
+                <div class="card-header">
+                  <div class="section-heading">
+                    <h3>清单导航</h3>
+                    <p>点击左侧清单卡片就会切换右侧工作区。</p>
+                  </div>
+                </div>
+                <div class="card-body workbench-sidebar-body">
+                  <form id="list-create-form" class="inline-create-form compact-inline-form">
+                    <label class="field inline-create-field compact-inline-field">
+                      <span>新清单名称</span>
+                      <input id="list-create-title" type="text" maxlength="80" placeholder="例如：工作、家庭、购物" />
+                    </label>
+                    <button id="list-create-button" class="btn btn-primary" type="submit">新建</button>
+                  </form>
+                  <p id="list-feedback" class="alert alert-info" hidden></p>
+                  <div id="list-manager-grid" class="list-manager-grid empty-slot">加载后显示可管理的清单。</div>
+                </div>
+              </aside>
+
+              <section class="workbench-main">
+                <section class="card workbench-focus-card">
+                  <div class="card-header workbench-focus-header">
+                    <div class="section-heading">
+                      <h3 id="workbench-selected-title">全部任务</h3>
+                      <p id="workbench-selected-summary">左侧选择清单后，这里会切换到对应清单的任务视图。</p>
+                    </div>
+                    <div class="workbench-focus-actions">
+                      <button id="workbench-show-all-button" class="btn btn-ghost btn-sm" type="button">查看全部</button>
+                      <button id="todo-clear-completed-button" class="btn btn-danger btn-sm" type="button">清空已完成</button>
+                    </div>
+                  </div>
+                  <div class="card-body workbench-focus-body">
+                    <div class="workbench-list-settings">
+                      <label class="field workbench-name-field">
+                        <span>当前清单名称</span>
+                        <input id="workbench-list-title-input" type="text" maxlength="80" placeholder="选择清单后可在这里改名" />
+                      </label>
+                      <div class="workbench-name-actions">
+                        <button id="workbench-save-list-button" class="btn btn-ghost btn-sm" type="button">保存名称</button>
+                        <button id="workbench-delete-list-button" class="btn btn-danger btn-sm" type="button">删除清单</button>
+                      </div>
+                    </div>
+
+                    <div class="inline-toolbar workbench-toolbar">
+                      <div class="filter-group">
+                        <label class="filter-item">
+                          <span>状态</span>
+                          <select id="todo-filter-scope">
+                            <option value="all">全部</option>
+                            <option value="active">待办</option>
+                            <option value="completed">已完成</option>
+                            <option value="today">今日</option>
+                            <option value="overdue">逾期</option>
+                            <option value="unscheduled">未排期</option>
+                          </select>
+                        </label>
+                      </div>
+                      <select id="todo-filter-list" hidden>
+                        <option value="all">全部清单</option>
+                      </select>
+                    </div>
+
+                    <form id="todo-create-form" class="workbench-create-form">
+                      <label class="field workbench-create-title">
+                        <span>新增任务</span>
+                        <input id="todo-create-title" type="text" maxlength="120" placeholder="例如：修复 Android 同步、清理已完成、检查 Tailscale 节点" />
+                      </label>
+
+                      <label class="field">
+                        <span>目标清单</span>
+                        <select id="todo-create-list"></select>
+                      </label>
+
+                      <label class="field">
+                        <span>标签</span>
+                        <input id="todo-create-tag" type="text" maxlength="40" placeholder="例如：工作 / 紧急" />
+                      </label>
+
+                      <label class="field">
+                        <span>截止日期</span>
+                        <input id="todo-create-due-at" type="date" />
+                      </label>
+
+                      <div class="form-actions workbench-create-actions">
+                        <button id="todo-create-button" class="btn btn-primary" type="submit">新增任务</button>
+                      </div>
+                    </form>
+
+                    <p id="todo-create-feedback" class="alert alert-info" hidden></p>
+                    <p id="todo-feedback" class="todo-feedback alert alert-info" hidden></p>
+                    <div id="recent-todos" class="todo-stack empty-slot">正在同步任务数据...</div>
+                  </div>
+                </section>
+              </section>
+            </section>
+          </section>
+
+          <section id="view-share" class="view-page page-shell" data-view-panel="share" hidden>
+            <header class="page-toolbar">
+              <div class="page-toolbar-copy">
+                <p class="page-toolbar-eyebrow">Share</p>
+                <h2 class="page-toolbar-title">导入与分享</h2>
+                <p class="page-toolbar-description">把 Tailscale、局域网和深链导入能力集中在一页，方便给手机端或浏览器端分发。</p>
+              </div>
+            </header>
+            <div class="page-grid two-up">
+              <section class="card">
+                <div class="card-header">
+                  <div class="section-heading">
+                    <h3>候选连接地址</h3>
+                    <p>优先展示 Tailscale、局域网和当前请求来源。</p>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div id="candidate-list" class="candidate-list empty-slot">加载后显示推荐地址。</div>
+                </div>
+              </section>
+
+              <section class="card">
+                <div class="card-header">
+                  <div class="section-heading">
+                    <h3>导入提示</h3>
+                    <p id="share-hint">扫码或复制配置到客户端</p>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div id="share-cards" class="share-cards empty-slot">加载后显示可直接使用的导入动作。</div>
+                </div>
+              </section>
+            </div>
+
+            <section class="card">
+              <div class="card-header">
+                <div class="section-heading">
+                  <h3>二维码与短分享文本</h3>
+                  <p>适合手机扫码、剪贴板转发和手动导入。</p>
+                </div>
+              </div>
+              <div class="card-body share-panel-body">
+                <div id="share-qr-block" class="qr-block" hidden>
+                  <div class="section-row">
+                    <p class="share-label">二维码</p>
+                    <div class="qr-actions">
+                      <button id="share-copy-qr-value-button" class="btn btn-ghost btn-xs" type="button" hidden>复制原始值</button>
+                      <button id="share-download-qr-button" class="btn btn-ghost btn-xs" type="button" hidden>下载 SVG</button>
+                    </div>
+                  </div>
+                  <div id="share-qr-preview" class="share-qr-preview empty-slot">加载后显示客户端导入二维码。</div>
+                </div>
+
+                <div id="share-text-block" class="text-block" hidden>
+                  <div class="section-row">
+                    <p class="share-label">短分享文本</p>
+                    <button id="share-copy-text-button" class="btn btn-ghost btn-xs" type="button" hidden>复制配置文本</button>
+                  </div>
+                  <pre id="share-text" class="text-content"></pre>
+                </div>
+
+                <p id="share-feedback" class="alert alert-info" hidden></p>
+              </div>
+            </section>
+          </section>
+
+          <section id="view-config" class="view-page page-shell" data-view-panel="config" hidden>
+            <header class="page-toolbar">
+              <div class="page-toolbar-copy">
+                <p class="page-toolbar-eyebrow">Config</p>
+                <h2 class="page-toolbar-title">服务配置</h2>
+                <p class="page-toolbar-description">保持左侧表单、右侧元信息的设置页结构，尽量贴近 fast-note 的系统设置阅读节奏。</p>
+              </div>
+              <div class="page-toolbar-actions">
+                <button id="config-refresh-button" class="btn btn-ghost btn-sm" type="button">重新读取</button>
+              </div>
+            </header>
+            <div class="page-grid two-up">
+              <section class="card">
+                <div class="card-header">
+                  <div class="section-heading">
+                    <h3>服务配置</h3>
+                    <p>更新对外地址、导入入口和 HTTP 日志模式。</p>
+                  </div>
+                </div>
+                <div class="card-body config-page-body">
+                  <p id="config-feedback" class="alert alert-info" hidden></p>
+
+                  <form id="config-form" class="config-form">
+                    <label class="field">
+                      <span>Public Base URL</span>
+                      <input id="config-public-base-url" type="text" placeholder="https://todo.example.com" />
+                    </label>
+                    <label class="field">
+                      <span>Public WS Base URL</span>
+                      <input id="config-public-ws-base-url" type="text" placeholder="wss://todo.example.com" />
+                    </label>
+                    <label class="field">
+                      <span>App Web URL</span>
+                      <input id="config-app-web-url" type="text" placeholder="https://app.example.com" />
+                    </label>
+                    <label class="field">
+                      <span>App Deep Link Base</span>
+                      <input id="config-app-deep-link-base" type="text" placeholder="com.lyston11.sshtodolist://connect" />
+                    </label>
+                    <label class="field">
+                      <span>HTTP Log Mode</span>
+                      <select id="config-http-log-mode">
+                        <option value="off">off</option>
+                        <option value="errors">errors</option>
+                        <option value="all">all</option>
+                      </select>
+                    </label>
+
+                    <div class="config-actions">
+                      <button id="config-save-button" class="btn btn-primary" type="submit">保存配置</button>
+                    </div>
+                  </form>
+                </div>
+              </section>
+
+              <section class="card">
+                <div class="card-header">
+                  <div class="section-heading">
+                    <h3>配置元信息</h3>
+                    <p>这里展示的是服务端落盘后的真实配置，而不是浏览器缓存。</p>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <section class="config-sidecard">
+                    <div class="config-meta-list">
+                      <div class="meta-item">
+                        <span class="label">配置文件</span>
+                        <span id="config-path" class="value">-</span>
+                      </div>
+                      <div class="meta-item">
+                        <span class="label">最后读取</span>
+                        <span id="config-updated-at" class="value">尚未加载</span>
+                      </div>
+                      <div class="meta-item">
+                        <span class="label">鉴权状态</span>
+                        <span id="config-auth-required" class="value">-</span>
+                      </div>
+                    </div>
+                    <div class="config-note">
+                      <p class="hint">保存后，连接配置、导入链接和 HTTP 日志模式会按新配置重新生成。</p>
+                      <p class="hint">如果你在 Tailscale 或反向代理后运行服务，优先在这里填对外地址。</p>
+                    </div>
+                  </section>
+                </div>
+              </section>
+            </div>
+
+            <section class="card">
+              <div class="card-header">
+                <div class="section-heading">
+                  <h3>高级运维</h3>
+                  <p>这里是部署者和排障时才会用到的原始接口、健康检查与安装方式，普通同步用户不用看。</p>
+                </div>
+                <button id="runtime-toggle-button" class="btn btn-ghost btn-sm" type="button">展开高级信息</button>
+              </div>
+              <div class="card-body runtime-advanced-card">
+                <p class="hint">首次部署、换机器、排查网络问题时再展开；日常只需要用上面的分享入口和配置即可。</p>
+                <div id="runtime-advanced-panel" class="runtime-advanced-panel" hidden>
+                  <p id="ops-feedback" class="alert alert-info" hidden></p>
+                  <div id="runtime-summary" class="runtime-summary empty-slot">加载后显示运行摘要。</div>
+                  <div id="runtime-grid" class="runtime-grid empty-slot">加载后显示服务入口与接口地址。</div>
+                  <div id="install-grid" class="install-grid empty-slot">加载后显示安装与部署方式。</div>
+                </div>
+              </div>
+            </section>
+          </section>
+
+          <section id="view-activity" class="view-page page-shell" data-view-panel="activity" hidden>
+            <header class="page-toolbar">
+              <div class="page-toolbar-copy">
+                <p class="page-toolbar-eyebrow">Activity</p>
+                <h2 class="page-toolbar-title">最近活动</h2>
+                <p class="page-toolbar-description">服务启动、配置变更、清单和任务改动都在这里按时间线沉淀。</p>
+              </div>
+              <div class="page-toolbar-actions">
+                <button id="activity-refresh-button" class="btn btn-ghost btn-sm" type="button">刷新活动</button>
+              </div>
+            </header>
+            <section class="card">
+              <div class="card-header">
+                <div class="section-heading">
+                  <h3>最近活动</h3>
+                  <p>服务启动、配置变更、清单操作和任务变更都在这里沉淀。</p>
+                </div>
+              </div>
+              <div class="card-body activity-page-body">
+                <div id="activity-list" class="activity-list empty-slot">加载后显示最近活动。</div>
+              </div>
+            </section>
+          </section>
+        </main>
+      </div>
     </div>
 
-    <script type="module" src="/admin/admin.js"></script>
+    <script type="module" src="/admin/admin.js?v=20260406-theme7"></script>
   </body>
 </html>

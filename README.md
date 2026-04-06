@@ -14,11 +14,16 @@
 
 - `server.py`: 服务启动入口
 - `backend/store.py`: SQLite 存储
-- `backend/service.py`: 业务逻辑和校验
+- `backend/service.py`: 业务编排层
+- `backend/service_validators.py`: payload 校验与字段归一化
+- `backend/service_errors.py`: 服务错误类型
 - `backend/http_server.py`: HTTP API、CORS、可选静态目录挂载
+- `backend/http_logging.py`: HTTP 访问日志模式与格式化
 - `backend/realtime.py`: WebSocket 广播
 - `backend/network.py`: Tailscale / 局域网地址发现
-- `backend/connection.py`: 客户端连接配置与导入链接导出
+- `backend/connection.py`: 客户端连接配置兼容层
+- `backend/connection_urls.py`: URL / 导入链接基础拼装
+- `backend/connection_links.py`: config64 / 分享文本 / 二维码生成
 - `tests/test_store.py`: 服务端回归测试
 - `data/`: 默认 SQLite 数据目录
 
@@ -135,6 +140,12 @@ conda run -n ssh-todolist python server.py --host 0.0.0.0 --port 8000 --token yo
 - HTTP: `8000`
 - WebSocket: `8001`
 
+默认 HTTP 访问日志模式：
+
+- `errors`
+- 只记录 `4xx/5xx`
+- 如果你想看全部请求，显式打开 `--http-log all`
+
 ## 可选参数
 
 ```bash
@@ -143,7 +154,8 @@ conda run -n ssh-todolist python server.py \
   --port 8000 \
   --ws-port 8001 \
   --db ./data/todos.db \
-  --token your-shared-token
+  --token your-shared-token \
+  --http-log errors
 ```
 
 如果你准备通过域名或反向代理暴露给客户端，建议显式告诉服务端对外地址：
@@ -173,8 +185,15 @@ conda run -n ssh-todolist python server.py --host 0.0.0.0 --port 8000
 export SSH_TODOLIST_PUBLIC_BASE_URL=http://100.x.x.x:8000
 export SSH_TODOLIST_PUBLIC_WS_BASE_URL=ws://100.x.x.x:8001
 export SSH_TODOLIST_PRINT_CONNECT_SECRETS=true
+export SSH_TODOLIST_HTTP_LOG=all
 conda run -n ssh-todolist python server.py --host 0.0.0.0 --port 8000
 ```
+
+`SSH_TODOLIST_HTTP_LOG` / `--http-log` 支持：
+
+- `off`: 完全关闭 HTTP 访问日志
+- `errors`: 只记录失败请求，默认值
+- `all`: 记录全部 HTTP 请求
 
 如果你想临时把独立 app 静态目录也挂到这个服务上，可以额外传：
 
@@ -197,7 +216,7 @@ conda run -n ssh-todolist python server.py \
 
 ## 浏览器后台
 
-服务端现在内置了一个只读后台页，不依赖 `ssh-todolist-app`。
+服务端现在内置了一个独立后台页，不依赖 `ssh-todolist-app`。
 
 部署后你可以直接在浏览器里打开：
 
@@ -213,8 +232,34 @@ http://<server-host>:8000/admin
 - SQLite 数据库路径和文件大小
 - 清单总数、任务总数、待完成数、已完成数
 - 每个清单的任务统计
-- 最近更新的任务
+- 多页后台视图中的任务工作台
+- 按清单 / 状态筛选后的全量任务列表
 - `config64` / Deep Link / Web 导入链接等客户端导入信息
+- 最近活动流
+- 服务配置持久化文件位置
+
+后台接口当前已经支持真实配置读写，不再只是静态说明页。
+
+当前后台交互逻辑：
+
+- 概览页负责统计、候选地址和活动预览
+- 工作台页采用“左侧清单导航，右侧当前清单操作区”的结构
+- 工作台会通过 `GET /api/todos` 拉取全量任务，再按清单和状态筛选
+- 工作台中的改名、删除清单、清空已完成、移动任务、修改截止日期都是真实接口
+- 后台右上角支持白天 / 夜晚主题切换
+
+新增后台管理接口：
+
+- `GET /api/admin/overview`: 返回总览、运行信息、清单统计、最近任务
+- `GET /api/admin/config`: 返回当前服务配置快照
+- `POST /api/admin/config`: 更新并持久化公共地址、导入入口、HTTP 日志模式
+- `GET /api/admin/activity`: 返回最近后台活动流
+
+配置会持久化到：
+
+- `data/service-settings.json`
+
+也就是服务启动时终端打印的 `Service settings:` 路径。
 
 如果服务启用了 token 鉴权：
 
@@ -309,6 +354,7 @@ http://100.x.x.x:8000/api/connect-config
 - 服务端和 app 继续保持完全分离，连接描述通过显式 JSON 契约传递
 - Tailscale 地址发现、连接配置组装、HTTP 暴露分别位于独立模块，避免把网络细节塞进业务层
 - 公开接口不会泄露真实 token；敏感导入信息默认只通过已鉴权接口返回
+- 服务配置与活动流已经从主服务逻辑里拆为独立模块，后续继续扩展后台能力时不会把 `http_server.py` 和 `service.py` 再写回大杂烩
 
 ## 导入链接与分享
 
@@ -352,5 +398,5 @@ Authorization: Bearer your-shared-token
 ```bash
 cd ssh-todolist-services
 conda run -n ssh-todolist python -m py_compile server.py backend/auth.py backend/network.py backend/connection.py backend/store.py backend/service.py backend/realtime.py backend/http_server.py
-conda run -n ssh-todolist python -m unittest tests.test_auth tests.test_connection tests.test_store
+conda run -n ssh-todolist python -m unittest discover -s tests
 ```

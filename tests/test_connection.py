@@ -150,7 +150,7 @@ class ConnectionConfigTests(unittest.TestCase):
             payload["qrSvgUrl"],
             "http://100.88.77.66:8000/api/connect-link/qr.svg",
         )
-        self.assertIn("Focus List 导入链接", payload["shortText"])
+        self.assertIn("SSH Todo 导入链接", payload["shortText"])
 
     def test_detects_trustworthy_remote_candidate(self) -> None:
         self.assertTrue(

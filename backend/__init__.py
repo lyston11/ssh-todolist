@@ -1,1 +1,1 @@
-"""Backend package for the Focus List sync service."""
+"""Backend package for the SSH Todo sync service."""

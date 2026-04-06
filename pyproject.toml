@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ssh-todolist-services"
 version = "0.10.0"
-description = "Focus List sync service for Tailscale LAN todo synchronization."
+description = "SSH Todo sync service for Tailscale LAN todo synchronization."
 requires-python = ">=3.12"
 readme = "README.md"
 dependencies = [

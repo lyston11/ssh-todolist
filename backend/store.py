@@ -3,6 +3,9 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
+TODO_LIST_ID_INDEX = "idx_todos_list_id"
+TODO_COMPLETED_LIST_INDEX = "idx_todos_completed_list_id"
+
 
 def utc_ms() -> int:
     return int(time.time() * 1000)
@@ -17,6 +20,7 @@ class TodoStore:
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.db_path)
         connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
         return connection
 
     def _init_db(self) -> None:
@@ -37,6 +41,8 @@ class TodoStore:
                     id TEXT PRIMARY KEY,
                     list_id TEXT NOT NULL,
                     title TEXT NOT NULL,
+                    tag TEXT,
+                    due_at INTEGER,
                     completed INTEGER NOT NULL DEFAULT 0,
                     created_at INTEGER NOT NULL,
                     updated_at INTEGER NOT NULL,
@@ -46,6 +52,7 @@ class TodoStore:
                 """
             )
             self._migrate_todos_schema(connection)
+            self._ensure_indexes(connection)
             self._ensure_default_list(connection)
             connection.commit()
 
@@ -65,7 +72,7 @@ class TodoStore:
             if list_id is None:
                 rows = connection.execute(
                     """
-                    SELECT id, list_id, title, completed, created_at, updated_at, completed_at
+                    SELECT id, list_id, title, tag, due_at, completed, created_at, updated_at, completed_at
                     FROM todos
                     ORDER BY created_at DESC
                     """
@@ -73,7 +80,7 @@ class TodoStore:
             else:
                 rows = connection.execute(
                     """
-                    SELECT id, list_id, title, completed, created_at, updated_at, completed_at
+                    SELECT id, list_id, title, tag, due_at, completed, created_at, updated_at, completed_at
                     FROM todos
                     WHERE list_id = ?
                     ORDER BY created_at DESC
@@ -145,16 +152,23 @@ class TodoStore:
             connection.commit()
         return cursor.rowcount > 0
 
-    def create_todo(self, list_id: str, title: str, todo_id: str | None = None) -> dict:
+    def create_todo(
+        self,
+        list_id: str,
+        title: str,
+        todo_id: str | None = None,
+        tag: str | None = None,
+        due_at: int | None = None,
+    ) -> dict:
         todo_id = todo_id or str(uuid4())
         now = utc_ms()
         with self._connect() as connection:
             connection.execute(
                 """
-                INSERT INTO todos (id, list_id, title, completed, created_at, updated_at, completed_at)
-                VALUES (?, ?, ?, 0, ?, ?, NULL)
+                INSERT INTO todos (id, list_id, title, tag, due_at, completed, created_at, updated_at, completed_at)
+                VALUES (?, ?, ?, ?, ?, 0, ?, ?, NULL)
                 """,
-                (todo_id, list_id, title, now, now),
+                (todo_id, list_id, title, tag, due_at, now, now),
             )
             connection.commit()
         return self.get_todo(todo_id)
@@ -163,7 +177,7 @@ class TodoStore:
         with self._connect() as connection:
             row = connection.execute(
                 """
-                SELECT id, list_id, title, completed, created_at, updated_at, completed_at
+                SELECT id, list_id, title, tag, due_at, completed, created_at, updated_at, completed_at
                 FROM todos
                 WHERE id = ?
                 """,
@@ -179,6 +193,9 @@ class TodoStore:
         title: str | None,
         completed: bool | None,
         list_id: str | None = None,
+        tag: str | None = None,
+        due_at: int | None = None,
+        due_at_provided: bool = False,
     ) -> dict | None:
         existing = self.get_todo(todo_id)
         if existing is None:
@@ -187,6 +204,8 @@ class TodoStore:
         next_title = title if title is not None else existing["title"]
         next_completed = completed if completed is not None else existing["completed"]
         next_list_id = list_id if list_id is not None else existing["listId"]
+        next_tag = tag if tag is not None else existing["tag"]
+        next_due_at = due_at if due_at_provided else existing["dueAt"]
         next_completed_at = existing["completedAt"]
         if completed is True:
             next_completed_at = utc_ms()
@@ -198,10 +217,10 @@ class TodoStore:
             connection.execute(
                 """
                 UPDATE todos
-                SET list_id = ?, title = ?, completed = ?, updated_at = ?, completed_at = ?
+                SET list_id = ?, title = ?, tag = ?, due_at = ?, completed = ?, updated_at = ?, completed_at = ?
                 WHERE id = ?
                 """,
-                (next_list_id, next_title, int(next_completed), now, next_completed_at, todo_id),
+                (next_list_id, next_title, next_tag, next_due_at, int(next_completed), now, next_completed_at, todo_id),
             )
             connection.commit()
 
@@ -231,6 +250,8 @@ class TodoStore:
             "id": row["id"],
             "listId": row["list_id"],
             "title": row["title"],
+            "tag": row["tag"],
+            "dueAt": row["due_at"],
             "completed": bool(row["completed"]),
             "createdAt": row["created_at"],
             "updatedAt": row["updated_at"],
@@ -265,16 +286,34 @@ class TodoStore:
             row["name"]
             for row in connection.execute("PRAGMA table_info(todos)").fetchall()
         }
-        if "list_id" in columns:
-            return
+        if "list_id" not in columns:
+            connection.execute("ALTER TABLE todos ADD COLUMN list_id TEXT")
+            default_list_id = "default-list"
+            connection.execute(
+                """
+                UPDATE todos
+                SET list_id = ?
+                WHERE list_id IS NULL
+                """,
+                (default_list_id,),
+            )
 
-        connection.execute("ALTER TABLE todos ADD COLUMN list_id TEXT")
-        default_list_id = "default-list"
+        if "tag" not in columns:
+            connection.execute("ALTER TABLE todos ADD COLUMN tag TEXT")
+
+        if "due_at" not in columns:
+            connection.execute("ALTER TABLE todos ADD COLUMN due_at INTEGER")
+
+    def _ensure_indexes(self, connection: sqlite3.Connection) -> None:
         connection.execute(
+            f"""
+            CREATE INDEX IF NOT EXISTS {TODO_LIST_ID_INDEX}
+            ON todos (list_id)
             """
-            UPDATE todos
-            SET list_id = ?
-            WHERE list_id IS NULL
-            """,
-            (default_list_id,),
+        )
+        connection.execute(
+            f"""
+            CREATE INDEX IF NOT EXISTS {TODO_COMPLETED_LIST_INDEX}
+            ON todos (completed, list_id)
+            """
         )
